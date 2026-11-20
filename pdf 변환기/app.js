@@ -288,49 +288,21 @@ function initTheme() {
 
 // ================= Tab Navigation =================
 function initTabs() {
-  dom.tabMerge.addEventListener('click', () => switchTab('mergeSection'));
-  dom.tabConvert.addEventListener('click', () => switchTab('convertSection'));
-  if (dom.tabAdmin) {
-    dom.tabAdmin.addEventListener('click', () => switchTab('adminSection'));
-  }
+  if (dom.tabMerge) dom.tabMerge.addEventListener('click', () => switchTab('mergeSection'));
+  if (dom.tabConvert) dom.tabConvert.addEventListener('click', () => switchTab('convertSection'));
 }
 
 function switchTab(sectionId) {
-  // Guard admin section
-  if (sectionId === 'adminSection') {
-    const currentUser = getCurrentUser();
-    if (!isAdminUser(currentUser)) {
-      showToast('관리자(bosung3116@gmail.com) 전용 메뉴입니다.', 'error');
-      switchTab('mergeSection');
-      return;
-    }
-    dom.tabMerge.classList.remove('active');
-    dom.tabConvert.classList.remove('active');
-    dom.tabAdmin.classList.add('active');
-    dom.mergeSection.style.display = 'none';
-    dom.convertSection.style.display = 'none';
-    dom.adminSection.style.display = 'flex';
-    renderAdminDashboard();
-    startGasAutoSyncTimer();
-    return;
-  }
-
-  stopGasAutoSyncTimer();
-
   if (sectionId === 'mergeSection') {
     dom.tabMerge.classList.add('active');
     dom.tabConvert.classList.remove('active');
-    if (dom.tabAdmin) dom.tabAdmin.classList.remove('active');
     dom.mergeSection.style.display = 'block';
     dom.convertSection.style.display = 'none';
-    if (dom.adminSection) dom.adminSection.style.display = 'none';
   } else {
     dom.tabMerge.classList.remove('active');
     dom.tabConvert.classList.add('active');
-    if (dom.tabAdmin) dom.tabAdmin.classList.remove('active');
     dom.mergeSection.style.display = 'none';
     dom.convertSection.style.display = 'block';
-    if (dom.adminSection) dom.adminSection.style.display = 'none';
   }
 }
 
@@ -2681,42 +2653,13 @@ function updateAuthUI() {
       dom.userChipBadge.className = 'user-chip-badge badge-admin';
     }
     if (dom.requestPermFromChipBtn) dom.requestPermFromChipBtn.style.display = 'none';
-
-    // Show Admin Console Tab ONLY for bosung3116@gmail.com
-    if (dom.tabAdmin) {
-      dom.tabAdmin.style.display = 'inline-flex';
-    }
-
-    // Update pending request badge count
-    const requests = getAccessRequests();
-    const pendingCount = requests.filter(r => r.status === 'pending').length;
-
-    if (dom.adminPendingBadge) {
-      if (pendingCount > 0) {
-        dom.adminPendingBadge.textContent = pendingCount;
-        dom.adminPendingBadge.style.display = 'inline-block';
-      } else {
-        dom.adminPendingBadge.style.display = 'none';
-      }
-    }
-
-    if (dom.subtabPendingCountBadge) {
-      if (pendingCount > 0) {
-        dom.subtabPendingCountBadge.textContent = pendingCount;
-        dom.subtabPendingCountBadge.style.display = 'inline-block';
-      } else {
-        dom.subtabPendingCountBadge.style.display = 'none';
-      }
-    }
   } else {
-    // Normal User State (Admin Console is strictly hidden)
+    // Normal User State
     if (dom.userAvatarCircle) dom.userAvatarCircle.classList.remove('avatar-admin-crown');
-    if (dom.tabAdmin) dom.tabAdmin.style.display = 'none';
-    if (dom.adminSection) dom.adminSection.style.display = 'none';
 
     const status = getUserPermissionStatus(user.email);
 
-    if (status === 'approved') {
+    if (status === 'approved' || user.status === 'approved' || user.role === 'member') {
       if (dom.userChipBadge) {
         dom.userChipBadge.textContent = '✅ 권한 승인됨';
         dom.userChipBadge.className = 'user-chip-badge badge-approved';
@@ -2955,19 +2898,15 @@ function recordUsage(actionType, details, pageCount = 1, fileName = '') {
 }
 
 // ==========================================================================
-// Admin Console Dashboard Logic
+// Admin Console Dashboard Logic (Integrated into Main Portal)
 // ==========================================================================
 function initAdminConsole() {
-  // Subtabs switching
-  if (dom.subtabRequests) {
-    dom.subtabRequests.addEventListener('click', () => switchAdminSubtab('requestsPanel'));
-  }
-  if (dom.subtabUsage) {
-    dom.subtabUsage.addEventListener('click', () => switchAdminSubtab('usagePanel'));
-  }
-  if (dom.subtabLogs) {
-    dom.subtabLogs.addEventListener('click', () => switchAdminSubtab('logsPanel'));
-  }
+  return;
+}
+
+function renderAdminDashboard() {
+  return;
+}
 
   // Request filter chips
   document.querySelectorAll('.filter-chip').forEach(chip => {
@@ -3107,7 +3046,7 @@ function switchAdminSubtab(panelId) {
 }
 
 function renderAdminDashboard() {
-  const requests = getAccessRequests();
+  return;
   const usage = getUsageData();
   const logs = getActivityLogs();
 

@@ -409,10 +409,18 @@ const Storage = {
 // Initialization
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
+  // 1. Instant Synchronous Authentication Hydration (0ms delay, Zero-Flicker)
+  const cachedUser = Storage.getCurrentUser();
+  if (cachedUser && cachedUser.email) {
+    setAuthenticatedUser(cachedUser);
+  } else {
+    renderAppCards();
+  }
+
   initEventListeners();
   initGoogleIdentity();
-  await loadConfig();
-  await checkAuth();
+  loadConfig();
+  checkAuth();
 
   // Check URL parameters (OAuth redirect result if any)
   const urlParams = new URLSearchParams(window.location.search);
@@ -903,14 +911,25 @@ function redirectToGoogleLogin() {
 }
 
 // ============================================================================
-// Authentication Flow
+// Authentication Flow (Instant Local Hydration + Background Cloud Verification)
 // ============================================================================
 async function checkAuth() {
+  const cached = Storage.getCurrentUser();
+  if (cached && cached.email) {
+    setAuthenticatedUser(cached);
+    // Background non-blocking sync with cloud (0ms delay, no UI lag)
+    syncUserWithCloud(cached).then(syncedUser => {
+      if (syncedUser && (syncedUser.status !== cached.status || syncedUser.role !== cached.role)) {
+        setAuthenticatedUser(syncedUser);
+      }
+    }).catch(() => {});
+    return;
+  }
+
   try {
     const res = await apiCall('/api/auth/me');
     if (res.authenticated && res.user) {
-      const syncedUser = await syncUserWithCloud(res.user);
-      setAuthenticatedUser(syncedUser);
+      setAuthenticatedUser(res.user);
     } else {
       setUnauthenticated();
     }
@@ -949,6 +968,8 @@ function setAuthenticatedUser(user) {
     localStorage.setItem('pdf_studio_current_user', JSON.stringify(user));
     localStorage.setItem('bsoffice_token', 'session_' + user.email);
   } catch (e) {}
+
+  document.documentElement.classList.add('bsoffice-authenticated');
 
   // Toggle Header Sections
   document.getElementById('auth-guest').classList.add('hidden');
@@ -1044,6 +1065,7 @@ function setUnauthenticated() {
   state.currentUser = null;
   Storage.setCurrentUser(null);
   sessionStorage.removeItem('bsoffice_admin_simulating');
+  document.documentElement.classList.remove('bsoffice-authenticated');
 
   document.getElementById('auth-guest').classList.remove('hidden');
   document.getElementById('auth-logged-in').classList.add('hidden');

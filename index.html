@@ -13,6 +13,26 @@
   
   <link rel="stylesheet" href="./bsoffice-common.css">
   <link rel="stylesheet" href="./style.css">
+
+  <!-- Instant Session Hydration (Zero-lag / Zero-flicker SSO) -->
+  <script>
+    (function() {
+      try {
+        var cur = localStorage.getItem('bsoffice_current_user');
+        if (cur) {
+          var u = JSON.parse(cur);
+          if (u && u.email) {
+            document.documentElement.classList.add('bsoffice-authenticated');
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    html.bsoffice-authenticated #auth-guest { display: none !important; }
+    html.bsoffice-authenticated #auth-logged-in { display: flex !important; }
+  </style>
+
   <!-- Google Identity Services (GSI) Client SDK for Static Web & GitHub Pages -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
