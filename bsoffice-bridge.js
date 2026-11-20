@@ -7,12 +7,15 @@
   'use strict';
 
   // State
+  const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyH9THwSYLT-wXhVaTh0Vi0v3Ew4_v8j7_N6ZhKThu5W8CFFvHJqomxU_McfCwtmfw/exec';
+
   const bridgeState = {
     cdpConnected: false,
     cdpInfo: null,
     backendConnected: false,
     isStaticWeb: false,
-    checkedAt: null
+    checkedAt: null,
+    gasUrl: DEFAULT_GAS_URL
   };
 
   // Helper: File or Blob to Base64
@@ -281,6 +284,8 @@
       }
     }
   };
+
+  BSOfficeBridge.GAS_URL = DEFAULT_GAS_URL;
 
   // Expose to window
   window.BSOfficeBridge = BSOfficeBridge;

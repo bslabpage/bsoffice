@@ -404,12 +404,60 @@
             </div>
           </div>
 
-          <!-- Section: User Access Approvals Management -->
-          <div class="admin-section-card">
-            <div class="section-card-header">
+          <!-- Section: Pending Access Approval Requests Queue (승인/거절 처리 시 목록에서 즉시 사라짐) -->
+          <div class="admin-section-card" id="section-pending-requests">
+            <div class="section-card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
               <div>
-                <h3 class="card-title">사이트 사용 승인 요청 및 사용자 관리</h3>
-                <p class="card-subtitle">일반 사용자의 접근 권한을 승인하거나 거절/회수할 수 있습니다.</p>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3 class="card-title" style="margin: 0;">📥 사이트 사용 승인 요청 대기 목록</h3>
+                  <span id="badge-pending-count" class="status-tag pending" style="font-size: 0.75rem;">0건 대기</span>
+                </div>
+                <p class="card-subtitle" style="margin-top: 4px;">
+                  외부 사용자가 사이트 이용을 위해 제출한 승인 요청입니다. <strong>[승인]</strong> 또는 <strong>[거절]</strong> 처리 시 대기 목록에서 <strong>즉시 사라집니다</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div class="table-responsive" id="wrap-table-pending-requests">
+              <table class="data-table" id="table-pending-requests">
+                <thead>
+                  <tr>
+                    <th>신청자 (이름 / 구글 이메일)</th>
+                    <th>소속 부서 / 조직</th>
+                    <th>신청 사유</th>
+                    <th>신청 일시</th>
+                    <th>부여할 등급</th>
+                    <th>승인 처리</th>
+                  </tr>
+                </thead>
+                <tbody id="pending-requests-tbody">
+                  <!-- Dynamically populated: only pending requests -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Empty state when 0 pending requests -->
+            <div id="pending-empty-state" class="hidden" style="text-align: center; padding: 32px 20px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1; margin-top: 6px;">
+              <div style="font-size: 1.8rem; margin-bottom: 6px;">🎉</div>
+              <h4 style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin: 0 0 4px 0;">현재 처리 대기 중인 승인 요청이 없습니다.</h4>
+              <p style="font-size: 0.8rem; color: #64748b; margin: 0;">모든 사용자의 승인 요청 처리가 완료되었습니다.</p>
+            </div>
+          </div>
+
+          <!-- Section: Managed Users & Member Directory (승인 완료 회원 및 전체 사용자 관리) -->
+          <div class="admin-section-card" id="section-managed-users">
+            <div class="section-card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 class="card-title">👥 사이트 이용 회원 및 사용자 관리</h3>
+                <p class="card-subtitle">승인 완료된 회원 명단, 회원별 등급(관리자/회원/비회원) 및 프로그램 이용 통계를 관리합니다.</p>
+              </div>
+              
+              <!-- Filter Tabs -->
+              <div class="user-filter-tabs" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="btn-filter-user active" data-filter="all">전체 (<span id="cnt-filter-all">0</span>)</button>
+                <button type="button" class="btn-filter-user" data-filter="approved">승인 회원 (<span id="cnt-filter-approved">0</span>)</button>
+                <button type="button" class="btn-filter-user" data-filter="admin">관리자 (<span id="cnt-filter-admin">0</span>)</button>
+                <button type="button" class="btn-filter-user" data-filter="rejected">거절/보류 (<span id="cnt-filter-rejected">0</span>)</button>
               </div>
             </div>
 
@@ -419,12 +467,11 @@
                   <tr>
                     <th>사용자 (이름 / 구글 이메일)</th>
                     <th>부서 / 조직</th>
-                    <th>신청 사유</th>
-                    <th>신청 / 가입 일시</th>
-                    <th>회원 등급</th>
+                    <th>회원 등급 지정</th>
                     <th>승인 상태</th>
                     <th>총 이용수</th>
-                    <th>상태 변경 (승인 / 거절 / 보류)</th>
+                    <th>최근 활동 / 승인 일시</th>
+                    <th>권한 재설정</th>
                   </tr>
                 </thead>
                 <tbody id="users-tbody">

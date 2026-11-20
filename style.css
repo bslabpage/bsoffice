@@ -1364,6 +1364,29 @@ body {
   to { opacity: 1; transform: translateX(0); }
 }
 
+.btn-filter-user {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-filter-user:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-filter-user.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
 @media (max-width: 900px) {
   .hero-title { font-size: 2.1rem; }
   .cards-grid { grid-template-columns: 1fr; }

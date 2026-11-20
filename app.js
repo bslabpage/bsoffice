@@ -6,14 +6,20 @@
 
 const GOOGLE_CLIENT_ID = '659290198207-jo65ar0u3439lp5mf1rbkpmrvqhujmcl.apps.googleusercontent.com';
 const ADMIN_EMAIL = 'bosung3116@gmail.com';
-const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx2HG6H8ZcqbtF0lNxY5aZGew4feCk8sMIbPLHQnEYaWpGG7GujQBa7Tjubty5ZyAAw/exec';
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyH9THwSYLT-wXhVaTh0Vi0v3Ew4_v8j7_N6ZhKThu5W8CFFvHJqomxU_McfCwtmfw/exec';
 
 // ============================================================================
 // Google Sheets Cloud Sync Engine (Real-time Cross-Device Storage Layer)
 // ============================================================================
 const CloudSync = {
   getUrl() {
-    return localStorage.getItem('bsoffice_gas_url') || DEFAULT_GAS_URL || '';
+    const customUrl = localStorage.getItem('bsoffice_gas_url');
+    // If customUrl is the old defunct URL, update it to the active production URL
+    if (customUrl && customUrl.includes('AKfycbx2HG6H8ZcqbtF0lNxY5aZGew4feCk8sMIbPLHQnEYaWpGG7GujQBa7Tjubty5ZyAAw')) {
+      localStorage.setItem('bsoffice_gas_url', DEFAULT_GAS_URL);
+      return DEFAULT_GAS_URL;
+    }
+    return customUrl || DEFAULT_GAS_URL || '';
   },
 
   setUrl(url) {
@@ -289,7 +295,8 @@ const state = {
   apps: DEFAULT_APPS,      // Array of registered tools
   config: null,            // System config
   currentView: 'home',     // 'home' | 'admin' | 'viewer'
-  currentApp: null         // Currently loaded app in embedded viewer
+  currentApp: null,        // Currently loaded app in embedded viewer
+  adminUserFilter: 'all'   // 'all' | 'approved' | 'admin' | 'rejected'
 };
 
 // SVG Icon Mapping for dynamic cards
@@ -1224,134 +1231,266 @@ async function loadAdminDashboard() {
       appStatsTbody.appendChild(tr);
     });
 
-    // Users Management Table
+    // ========================================================================
+    // 1. Pending Approval Requests Queue (승인/거절 처리 시 즉시 사라지는 큐)
+    // ========================================================================
+    const pendingRequests = usersData.users.filter(u => u.status === 'pending');
+    const badgePending = document.getElementById('badge-pending-count');
+    const emptyPendingState = document.getElementById('pending-empty-state');
+    const wrapPendingTable = document.getElementById('wrap-table-pending-requests');
+    const pendingTbody = document.getElementById('pending-requests-tbody');
+
+    if (badgePending) {
+      badgePending.textContent = pendingRequests.length > 0 ? `${pendingRequests.length}건 대기 중` : '0건 (처리 완료)';
+      badgePending.className = pendingRequests.length > 0 ? 'status-tag pending' : 'status-tag approved';
+    }
+
+    if (pendingRequests.length === 0) {
+      if (emptyPendingState) emptyPendingState.classList.remove('hidden');
+      if (wrapPendingTable) wrapPendingTable.classList.add('hidden');
+      if (pendingTbody) pendingTbody.innerHTML = '';
+    } else {
+      if (emptyPendingState) emptyPendingState.classList.add('hidden');
+      if (wrapPendingTable) wrapPendingTable.classList.remove('hidden');
+      if (pendingTbody) {
+        pendingTbody.innerHTML = '';
+        pendingRequests.forEach(reqUser => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.82rem; overflow: hidden;">
+                  ${reqUser.picture ? `<img src="${reqUser.picture}" style="width:100%; height:100%; object-fit:cover;" />` : (reqUser.name[0] || 'U')}
+                </div>
+                <div>
+                  <div style="font-weight: 700; font-size: 0.9rem;">${reqUser.name}</div>
+                  <div style="font-size: 0.78rem; color: var(--text-muted);">${reqUser.email}</div>
+                </div>
+              </div>
+            </td>
+            <td style="font-size: 0.85rem;">${reqUser.department || '-'}</td>
+            <td style="font-size: 0.82rem; max-width: 220px;" title="${reqUser.reason || ''}">
+              ${reqUser.reason || '-'}
+            </td>
+            <td style="font-size: 0.8rem; color: var(--text-muted);">${reqUser.requested_at || reqUser.created_at || '-'}</td>
+            <td>
+              <select class="grade-select req-grade-select" data-email="${reqUser.email}" title="승인 시 부여할 등급 선택">
+                <option value="member" selected>👤 회원</option>
+                <option value="admin">👑 관리자</option>
+                <option value="guest">⚪ 비회원</option>
+              </select>
+            </td>
+            <td>
+              <div class="table-actions" style="display: flex; gap: 6px;">
+                <button class="btn-table-action btn-approve" data-email="${reqUser.email}" style="background:#4f46e5; color:#fff; border-color:#4f46e5; font-weight:700; padding:5px 10px;" title="승인">
+                  ✅ 승인
+                </button>
+                <button class="btn-table-action btn-reject" data-email="${reqUser.email}" style="background:#fee2e2; color:#b91c1c; border-color:#fca5a5; padding:5px 10px;" title="거절">
+                  ❌ 거절
+                </button>
+              </div>
+            </td>
+          `;
+
+          // Approve button handler (Processes request -> Disappears from this queue immediately!)
+          tr.querySelector('.btn-approve').addEventListener('click', async () => {
+            const chosenRole = tr.querySelector('.req-grade-select').value;
+            try {
+              await apiCall('/api/admin/approve', 'POST', { email: reqUser.email });
+              if (chosenRole !== 'member') {
+                await apiCall('/api/admin/set_role', 'POST', { email: reqUser.email, role: chosenRole });
+              }
+              showToast(`${reqUser.name} 계정이 승인되었습니다. (대기 목록에서 처리 완료됨)`, 'success');
+              await loadAdminDashboard();
+            } catch (e) {
+              showToast(e.message, 'error');
+            }
+          });
+
+          // Reject button handler (Processes request -> Disappears from this queue immediately!)
+          tr.querySelector('.btn-reject').addEventListener('click', async () => {
+            if (!confirm(`${reqUser.name}(${reqUser.email}) 사용 승인 요청을 '거절' 처리하시겠습니까?`)) return;
+            try {
+              await apiCall('/api/admin/reject', 'POST', { email: reqUser.email });
+              showToast(`${reqUser.name} 요청이 거절 처리되었습니다. (대기 목록에서 제외됨)`, 'info');
+              await loadAdminDashboard();
+            } catch (e) {
+              showToast(e.message, 'error');
+            }
+          });
+
+          pendingTbody.appendChild(tr);
+        });
+      }
+    }
+
+    // ========================================================================
+    // 2. Managed Users Directory Table (승인 완료 회원 및 전체 사용자 관리)
+    // ========================================================================
+    const allUsers = usersData.users;
+    const filterAllCnt = document.getElementById('cnt-filter-all');
+    const filterApprovedCnt = document.getElementById('cnt-filter-approved');
+    const filterAdminCnt = document.getElementById('cnt-filter-admin');
+    const filterRejectedCnt = document.getElementById('cnt-filter-rejected');
+
+    if (filterAllCnt) filterAllCnt.textContent = allUsers.length;
+    if (filterApprovedCnt) filterApprovedCnt.textContent = allUsers.filter(u => u.status === 'approved').length;
+    if (filterAdminCnt) filterAdminCnt.textContent = allUsers.filter(u => u.role === 'admin').length;
+    if (filterRejectedCnt) filterRejectedCnt.textContent = allUsers.filter(u => u.status === 'rejected' || u.status === 'pending').length;
+
+    // Filter displayed users by active tab
+    const curFilter = state.adminUserFilter || 'all';
+    let filteredUsers = allUsers;
+    if (curFilter === 'approved') {
+      filteredUsers = allUsers.filter(u => u.status === 'approved');
+    } else if (curFilter === 'admin') {
+      filteredUsers = allUsers.filter(u => u.role === 'admin');
+    } else if (curFilter === 'rejected') {
+      filteredUsers = allUsers.filter(u => u.status === 'rejected' || u.status === 'pending');
+    }
+
     const usersTbody = document.getElementById('users-tbody');
     usersTbody.innerHTML = '';
 
-    usersData.users.forEach(user => {
-      const tr = document.createElement('tr');
-      const isSuperAdmin = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    if (filteredUsers.length === 0) {
+      usersTbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">해당 분류에 등록된 사용자가 없습니다.</td></tr>`;
+    } else {
+      filteredUsers.forEach(user => {
+        const tr = document.createElement('tr');
+        const isSuperAdmin = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-      // 1. Grade (Role) Column: admin / member / guest
-      let roleHtml = '';
-      if (isSuperAdmin) {
-        roleHtml = `<span class="grade-badge admin">👑 최고 관리자</span>`;
-      } else {
-        roleHtml = `
-          <select class="grade-select" data-email="${user.email}" title="회원 등급 지정">
-            <option value="member" ${user.role === 'member' ? 'selected' : ''}>👤 회원</option>
-            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 관리자</option>
-            <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>⚪ 비회원</option>
-          </select>
-        `;
-      }
+        // 1. Grade (Role) Column: admin / member / guest
+        let roleHtml = '';
+        if (isSuperAdmin) {
+          roleHtml = `<span class="grade-badge admin">👑 최고 관리자</span>`;
+        } else {
+          roleHtml = `
+            <select class="grade-select dir-grade-select" data-email="${user.email}" title="회원 등급 지정">
+              <option value="member" ${user.role === 'member' ? 'selected' : ''}>👤 회원</option>
+              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 관리자</option>
+              <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>⚪ 비회원</option>
+            </select>
+          `;
+        }
 
-      // 2. Status Badge Column: approved / rejected / pending
-      let statusBadge = '';
-      if (user.status === 'approved') {
-        statusBadge = '<span class="status-tag approved">승인</span>';
-      } else if (user.status === 'rejected') {
-        statusBadge = '<span class="status-tag rejected">거절</span>';
-      } else {
-        statusBadge = '<span class="status-tag pending">보류</span>';
-      }
+        // 2. Status Badge Column: approved / rejected / pending
+        let statusBadge = '';
+        if (user.status === 'approved') {
+          statusBadge = '<span class="status-tag approved">승인됨</span>';
+        } else if (user.status === 'rejected') {
+          statusBadge = '<span class="status-tag rejected">거절됨</span>';
+        } else {
+          statusBadge = '<span class="status-tag pending">대기/보류</span>';
+        }
 
-      // 3. Status Action Buttons: 승인 / 거절 / 보류
-      let actionButtonsHtml = '';
-      if (isSuperAdmin) {
-        actionButtonsHtml = `<span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">변경 불가</span>`;
-      } else {
-        actionButtonsHtml = `
-          <div class="table-actions" style="display: flex; gap: 4px;">
-            <button class="btn-table-action btn-approve ${user.status === 'approved' ? 'active' : ''}" data-email="${user.email}" title="승인">승인</button>
-            <button class="btn-table-action btn-reject ${user.status === 'rejected' ? 'active' : ''}" data-email="${user.email}" title="거절">거절</button>
-            <button class="btn-table-action btn-hold ${user.status === 'pending' ? 'active' : ''}" data-email="${user.email}" title="보류">보류</button>
-          </div>
-        `;
-      }
+        // 3. Status Action Buttons: Status Reset / Toggle
+        let actionButtonsHtml = '';
+        if (isSuperAdmin) {
+          actionButtonsHtml = `<span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">변경 불가</span>`;
+        } else {
+          if (user.status === 'approved') {
+            actionButtonsHtml = `
+              <div class="table-actions" style="display: flex; gap: 4px;">
+                <button class="btn-table-action btn-dir-reject" data-email="${user.email}" style="color: #b91c1c;" title="거절 상태로 전환">거절 전환</button>
+                <button class="btn-table-action btn-dir-hold" data-email="${user.email}" style="color: #d97706;" title="보류(승인 대기)로 전환">보류 전환</button>
+              </div>
+            `;
+          } else if (user.status === 'rejected') {
+            actionButtonsHtml = `
+              <div class="table-actions">
+                <button class="btn-table-action btn-dir-approve" data-email="${user.email}" style="color: #4f46e5; font-weight: 700;" title="다시 승인">재승인</button>
+              </div>
+            `;
+          } else {
+            actionButtonsHtml = `
+              <div class="table-actions" style="display: flex; gap: 4px;">
+                <button class="btn-table-action btn-dir-approve" data-email="${user.email}" style="color: #4f46e5; font-weight: 700;" title="승인">승인</button>
+                <button class="btn-table-action btn-dir-reject" data-email="${user.email}" style="color: #b91c1c;" title="거절">거절</button>
+              </div>
+            `;
+          }
+        }
 
-      tr.innerHTML = `
-        <td>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 32px; height: 32px; border-radius: 50%; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.82rem; overflow: hidden;">
-              ${user.picture ? `<img src="${user.picture}" style="width:100%; height:100%; object-fit:cover;" />` : (user.name[0] || 'U')}
+        tr.innerHTML = `
+          <td>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 32px; height: 32px; border-radius: 50%; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.82rem; overflow: hidden;">
+                ${user.picture ? `<img src="${user.picture}" style="width:100%; height:100%; object-fit:cover;" />` : (user.name[0] || 'U')}
+              </div>
+              <div>
+                <div style="font-weight: 700; font-size: 0.9rem;">${user.name} ${isSuperAdmin ? '<span style="font-size:0.65rem; background:#4f46e5; color:#fff; padding:2px 6px; border-radius:99px; margin-left:4px;">SUPER ADMIN</span>' : ''}</div>
+                <div style="font-size: 0.78rem; color: var(--text-muted);">${user.email}</div>
+              </div>
             </div>
-            <div>
-              <div style="font-weight: 700; font-size: 0.9rem;">${user.name} ${isSuperAdmin ? '<span style="font-size:0.65rem; background:#4f46e5; color:#fff; padding:2px 6px; border-radius:99px; margin-left:4px;">SUPER ADMIN</span>' : ''}</div>
-              <div style="font-size: 0.78rem; color: var(--text-muted);">${user.email}</div>
-            </div>
-          </div>
-        </td>
-        <td style="font-size: 0.85rem;">${user.department || '-'}</td>
-        <td style="font-size: 0.82rem; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${user.reason || ''}">
-          ${user.reason || '-'}
-        </td>
-        <td style="font-size: 0.8rem; color: var(--text-muted);">${user.requested_at || user.created_at || '-'}</td>
-        <td>${roleHtml}</td>
-        <td>${statusBadge}</td>
-        <td><strong>${(user.total_usage || 0).toLocaleString()} 회</strong></td>
-        <td>${actionButtonsHtml}</td>
-      `;
+          </td>
+          <td style="font-size: 0.85rem;">${user.department || '-'}</td>
+          <td>${roleHtml}</td>
+          <td>${statusBadge}</td>
+          <td><strong>${(user.total_usage || 0).toLocaleString()} 회</strong></td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${user.approved_at || user.requested_at || user.created_at || '-'}</td>
+          <td>${actionButtonsHtml}</td>
+        `;
 
-      // Event listener for Grade Change
-      const gradeSelect = tr.querySelector('.grade-select');
-      if (gradeSelect) {
-        gradeSelect.addEventListener('change', async (e) => {
-          const newRole = e.target.value;
-          const roleLabels = { admin: '관리자', member: '회원', guest: '비회원' };
-          try {
-            await apiCall('/api/admin/set_role', 'POST', { email: user.email, role: newRole });
-            showToast(`${user.name}님의 등급이 '${roleLabels[newRole]}'(으)로 변경되었습니다.`, 'success');
-            loadAdminDashboard();
-          } catch (err) {
-            showToast(err.message, 'error');
-          }
-        });
-      }
+        // Event listener for Grade Change
+        const gradeSelect = tr.querySelector('.dir-grade-select');
+        if (gradeSelect) {
+          gradeSelect.addEventListener('change', async (e) => {
+            const newRole = e.target.value;
+            const roleLabels = { admin: '관리자', member: '회원', guest: '비회원' };
+            try {
+              await apiCall('/api/admin/set_role', 'POST', { email: user.email, role: newRole });
+              showToast(`${user.name}님의 등급이 '${roleLabels[newRole]}'(으)로 변경되었습니다.`, 'success');
+              await loadAdminDashboard();
+            } catch (err) {
+              showToast(err.message, 'error');
+            }
+          });
+        }
 
-      // Event listeners for Status Buttons: Approve / Reject / Hold
-      const btnApprove = tr.querySelector('.btn-approve');
-      if (btnApprove) {
-        btnApprove.addEventListener('click', async () => {
-          try {
-            await apiCall('/api/admin/approve', 'POST', { email: user.email });
-            showToast(`${user.name} 계정이 승인되었습니다. (등급: 회원)`, 'success');
-            loadAdminDashboard();
-          } catch (e) {
-            showToast(e.message, 'error');
-          }
-        });
-      }
+        // Action Buttons
+        const btnDirApprove = tr.querySelector('.btn-dir-approve');
+        if (btnDirApprove) {
+          btnDirApprove.addEventListener('click', async () => {
+            try {
+              await apiCall('/api/admin/approve', 'POST', { email: user.email });
+              showToast(`${user.name} 계정이 승인되었습니다.`, 'success');
+              await loadAdminDashboard();
+            } catch (e) {
+              showToast(e.message, 'error');
+            }
+          });
+        }
 
-      const btnReject = tr.querySelector('.btn-reject');
-      if (btnReject) {
-        btnReject.addEventListener('click', async () => {
-          if (!confirm(`${user.name}(${user.email}) 계정을 '거절' 상태로 변경하시겠습니까?`)) return;
-          try {
-            await apiCall('/api/admin/reject', 'POST', { email: user.email });
-            showToast(`${user.name} 계정이 거절 처리되었습니다.`, 'info');
-            loadAdminDashboard();
-          } catch (e) {
-            showToast(e.message, 'error');
-          }
-        });
-      }
+        const btnDirReject = tr.querySelector('.btn-dir-reject');
+        if (btnDirReject) {
+          btnDirReject.addEventListener('click', async () => {
+            if (!confirm(`${user.name}(${user.email}) 계정을 '거절' 상태로 변경하시겠습니까?`)) return;
+            try {
+              await apiCall('/api/admin/reject', 'POST', { email: user.email });
+              showToast(`${user.name} 계정이 거절 처리되었습니다.`, 'info');
+              await loadAdminDashboard();
+            } catch (e) {
+              showToast(e.message, 'error');
+            }
+          });
+        }
 
-      const btnHold = tr.querySelector('.btn-hold');
-      if (btnHold) {
-        btnHold.addEventListener('click', async () => {
-          try {
-            await apiCall('/api/admin/hold', 'POST', { email: user.email });
-            showToast(`${user.name} 계정이 '보류' 상태로 변경되었습니다.`, 'warning');
-            loadAdminDashboard();
-          } catch (e) {
-            showToast(e.message, 'error');
-          }
-        });
-      }
+        const btnDirHold = tr.querySelector('.btn-dir-hold');
+        if (btnDirHold) {
+          btnDirHold.addEventListener('click', async () => {
+            try {
+              await apiCall('/api/admin/hold', 'POST', { email: user.email });
+              showToast(`${user.name} 계정이 '보류' 상태로 변경되어 상단 승인 대기 목록으로 이동되었습니다.`, 'warning');
+              await loadAdminDashboard();
+            } catch (e) {
+              showToast(e.message, 'error');
+            }
+          });
+        }
 
-      usersTbody.appendChild(tr);
-    });
+        usersTbody.appendChild(tr);
+      });
+    }
 
     // Recent Activity Logs
     const logsTbody = document.getElementById('activity-logs-tbody');
@@ -1507,6 +1646,16 @@ function initEventListeners() {
       switchView('home');
     });
   }
+
+  // Managed Users Filter Tabs in Admin Dashboard
+  document.querySelectorAll('.btn-filter-user').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.btn-filter-user').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.adminUserFilter = btn.getAttribute('data-filter') || 'all';
+      loadAdminDashboard();
+    });
+  });
 
   // Profile Chip Toggle Dropdown
   const userChipBtn = document.getElementById('user-chip-btn');
