@@ -931,12 +931,24 @@ function isUserAdmin(user) {
 function canAccessTools(user) {
   if (!user) return false;
   if (isUserAdmin(user)) return true;
-  if (user.role === 'member' && user.status === 'approved') return true;
+  // Any approved user has full access to all features
+  if (user.status === 'approved') return true;
+  if (user.role === 'member' || user.role === 'admin') return true;
   return false;
 }
 
 function setAuthenticatedUser(user) {
+  if (user && user.status === 'approved' && (!user.role || user.role === 'guest')) {
+    user.role = 'member';
+  }
   state.currentUser = user;
+
+  // Seamless SSO: sync session across all sub-tools
+  try {
+    localStorage.setItem('bsoffice_current_user', JSON.stringify(user));
+    localStorage.setItem('pdf_studio_current_user', JSON.stringify(user));
+    localStorage.setItem('bsoffice_token', 'session_' + user.email);
+  } catch (e) {}
 
   // Toggle Header Sections
   document.getElementById('auth-guest').classList.add('hidden');
@@ -973,11 +985,12 @@ function setAuthenticatedUser(user) {
     document.getElementById('tab-admin').classList.add('hidden');
     document.getElementById('dropdown-btn-admin').classList.add('hidden');
 
-    const roleName = user.role === 'member' ? '회원' : '비회원';
+    const roleName = user.role === 'admin' ? '관리자' : (user.role === 'member' || user.status === 'approved' ? '회원' : '비회원');
     roleBadge.textContent = roleName;
-    roleBadge.className = user.role === 'member' ? 'role-badge member' : 'role-badge guest';
+    roleBadge.className = (user.role === 'member' || user.status === 'approved') ? 'role-badge member' : 'role-badge guest';
 
-    if (user.role === 'member' && user.status === 'approved') {
+    // Approved User Check
+    if (user.status === 'approved' || user.role === 'member') {
       statusText.textContent = '사용 승인됨';
       statusText.className = 'user-status-text approved';
       dropdownStatus.textContent = `등급: 회원 (승인 완료)`;
@@ -1151,6 +1164,15 @@ async function handleAppClick(app) {
 
 async function launchApp(app) {
   state.currentApp = app;
+
+  // Seamless SSO: Ensure sub-tools have access to current authenticated user
+  if (state.currentUser) {
+    try {
+      localStorage.setItem('bsoffice_current_user', JSON.stringify(state.currentUser));
+      localStorage.setItem('pdf_studio_current_user', JSON.stringify(state.currentUser));
+      localStorage.setItem('bsoffice_token', 'session_' + state.currentUser.email);
+    } catch (e) {}
+  }
 
   try {
     await apiCall('/api/track_usage', 'POST', { app_id: app.id });

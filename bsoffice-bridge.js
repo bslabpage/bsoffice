@@ -356,6 +356,26 @@
 
   BSOfficeBridge.GAS_URL = DEFAULT_GAS_URL;
 
+  // Single Sign-On (SSO) session helper for all sub-tools
+  BSOfficeBridge.getUser = function() {
+    try {
+      const raw = localStorage.getItem('bsoffice_current_user') || localStorage.getItem('pdf_studio_current_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  BSOfficeBridge.isApproved = function() {
+    const user = BSOfficeBridge.getUser();
+    if (!user || !user.email) return false;
+    const emailLower = user.email.toLowerCase().trim();
+    if (emailLower === 'bosung3116@gmail.com') return true;
+    if (user.status === 'approved') return true;
+    if (user.role === 'member' || user.role === 'admin') return true;
+    return false;
+  };
+
   // Expose to window
   window.BSOfficeBridge = BSOfficeBridge;
 

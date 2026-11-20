@@ -1877,6 +1877,15 @@ function saveVisitors(visitors) {
 // ================= Storage Helpers =================
 function getCurrentUser() {
   try {
+    // 1. Prioritize unified BOS'S Office authenticated user session
+    const bsofficeRaw = localStorage.getItem('bsoffice_current_user');
+    if (bsofficeRaw) {
+      const bUser = JSON.parse(bsofficeRaw);
+      if (bUser && bUser.email) {
+        return bUser;
+      }
+    }
+    // 2. Fallback to local pdf_studio key
     const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
     return raw ? JSON.parse(raw) : null;
   } catch (e) {
@@ -1887,8 +1896,13 @@ function getCurrentUser() {
 function saveCurrentUser(user) {
   if (user) {
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
+    // Also sync to unified BOS'S Office keys for full SSO
+    localStorage.setItem('bsoffice_current_user', JSON.stringify(user));
+    localStorage.setItem('bsoffice_token', 'session_' + user.email);
   } else {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    localStorage.removeItem('bsoffice_current_user');
+    localStorage.removeItem('bsoffice_token');
   }
 }
 
@@ -1938,10 +1952,38 @@ function saveActivityLogs(logs) {
 
 function getUserPermissionStatus(email) {
   if (!email) return 'guest';
-  if (email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase()) return 'approved';
+  const emailLower = email.trim().toLowerCase();
+  if (emailLower === ADMIN_EMAIL.toLowerCase()) return 'approved';
+
+  // Check unified BOS'S Office current user
+  try {
+    const curRaw = localStorage.getItem('bsoffice_current_user');
+    if (curRaw) {
+      const cur = JSON.parse(curRaw);
+      if (cur && cur.email && cur.email.toLowerCase() === emailLower) {
+        if (cur.status === 'approved' || cur.role === 'member' || cur.role === 'admin') {
+          return 'approved';
+        }
+        if (cur.status) return cur.status;
+      }
+    }
+
+    // Check unified BOS'S Office registered users list
+    const usersRaw = localStorage.getItem('bsoffice_users');
+    if (usersRaw) {
+      const uList = JSON.parse(usersRaw);
+      const matched = uList.find(u => u.email && u.email.toLowerCase() === emailLower);
+      if (matched) {
+        if (matched.status === 'approved' || matched.role === 'member' || matched.role === 'admin') {
+          return 'approved';
+        }
+        if (matched.status) return matched.status;
+      }
+    }
+  } catch (e) {}
 
   const requests = getAccessRequests();
-  const req = requests.find(r => r.email.trim().toLowerCase() === email.trim().toLowerCase());
+  const req = requests.find(r => r.email.trim().toLowerCase() === emailLower);
   return req ? req.status : 'none'; // 'pending' | 'approved' | 'rejected' | 'none'
 }
 
@@ -2728,10 +2770,10 @@ function checkPermissionOrPrompt(actionName = '기능') {
     return true;
   }
 
-  // 3. Normal user permission check
+  // 3. User permission check (Unified BOS'S Office Status)
   const status = getUserPermissionStatus(user.email);
 
-  if (status === 'approved') {
+  if (status === 'approved' || user.status === 'approved' || user.role === 'member') {
     return true;
   }
 
