@@ -8,194 +8,6 @@ const GOOGLE_CLIENT_ID = '659290198207-jo65ar0u3439lp5mf1rbkpmrvqhujmcl.apps.goo
 const ADMIN_EMAIL = 'bosung3116@gmail.com';
 const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx2HG6H8ZcqbtF0lNxY5aZGew4feCk8sMIbPLHQnEYaWpGG7GujQBa7Tjubty5ZyAAw/exec';
 
-// Embedded Google Apps Script Backend Source Code (For one-click copy in admin console)
-const GAS_BACKEND_CODE = `/**
- * ============================================================================
- * BOS'S Office - Google Apps Script 실시간 클라우드 DB 백엔드 (Code.gs)
- * ============================================================================
- * 
- * [배포 안내]
- * 1. sheets.new (새 Google 스프레드시트)를 생성합니다.
- * 2. 상단 메뉴 [확장 프로그램] ➔ [Apps Script] 클릭 후 이 파일의 전체 코드를 붙여넣습니다.
- * 3. 우측 상단 [배포] ➔ [새 배포] 클릭
- *    - 유형: 웹 앱 (Web App)
- *    - 설명: BOS'S Office API
- *    - 다음 사용자 권한으로 실행: '나(내 Google 계정)'
- *    - 액세스 권한: '모든 사용자(Anyone)'  <-- 반드시 '모든 사용자'로 설정해야 합니다!
- * 4. 생성된 웹 앱 URL(https://script.google.com/macros/s/.../exec)을 복사하여
- *    BOS'S Office 관리자 대시보드의 클라우드 연동 URL 입력창에 붙여넣습니다.
- */
-
-const SUPER_ADMIN_EMAIL = "bosung3116@gmail.com";
-
-function doGet(e) {
-  try {
-    const action = (e && e.parameter && e.parameter.action) || 'ping';
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName("Users");
-    if (!sheet) sheet = initUsersSheet(ss);
-
-    if (action === 'get_users') {
-      const users = getAllUsers(sheet);
-      return createJsonResponse({ status: 'success', users: users });
-    }
-
-    if (action === 'check_user') {
-      const email = (e.parameter.email || '').toLowerCase().trim();
-      const users = getAllUsers(sheet);
-      const user = users.find(function(u) { return u.email.toLowerCase() === email; });
-      return createJsonResponse({ status: 'success', user: user || null });
-    }
-
-    return createJsonResponse({
-      status: 'success',
-      message: "BOS'S Office Cloud DB is online!",
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    return createJsonResponse({ status: 'error', message: err.toString() });
-  }
-}
-
-function doPost(e) {
-  try {
-    let payload = {};
-    if (e && e.postData && e.postData.contents) {
-      payload = JSON.parse(e.postData.contents);
-    }
-    const action = payload.action;
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName("Users");
-    if (!sheet) sheet = initUsersSheet(ss);
-
-    if (action === 'request_access') {
-      const email = (payload.email || '').toLowerCase().trim();
-      const name = (payload.name || email.split('@')[0]).trim();
-      const dept = payload.department || '';
-      const reason = payload.reason || '';
-      const now = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
-
-      const rows = sheet.getDataRange().getValues();
-      let rowIndex = -1;
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i][0].toString().toLowerCase().trim() === email) {
-          rowIndex = i + 1;
-          break;
-        }
-      }
-
-      if (rowIndex > 0) {
-        sheet.getRange(rowIndex, 2).setValue(name);
-        sheet.getRange(rowIndex, 3).setValue(dept);
-        sheet.getRange(rowIndex, 4).setValue(reason);
-        sheet.getRange(rowIndex, 7).setValue('pending');
-        sheet.getRange(rowIndex, 8).setValue(now);
-      } else {
-        sheet.appendRow([email, name, dept, reason, 'guest', payload.picture || '', 'pending', now, '']);
-      }
-
-      return createJsonResponse({
-        status: 'success',
-        message: '승인 요청이 클라우드 데이터베이스에 성공적으로 접수되었습니다.'
-      });
-    }
-
-    if (action === 'update_status') {
-      const email = (payload.email || '').toLowerCase().trim();
-      const status = payload.status;
-      const now = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
-
-      const rows = sheet.getDataRange().getValues();
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i][0].toString().toLowerCase().trim() === email) {
-          const rowNum = i + 1;
-          sheet.getRange(rowNum, 7).setValue(status);
-          if (status === 'approved') {
-            sheet.getRange(rowNum, 9).setValue(now);
-            if (rows[i][4] === 'guest') sheet.getRange(rowNum, 5).setValue('member');
-          }
-          break;
-        }
-      }
-      return createJsonResponse({ status: 'success', message: '상태가 변경되었습니다.' });
-    }
-
-    if (action === 'set_role') {
-      const email = (payload.email || '').toLowerCase().trim();
-      const role = payload.role;
-
-      if (email === SUPER_ADMIN_EMAIL.toLowerCase()) {
-        return createJsonResponse({ status: 'error', message: '최고 관리자의 등급은 변경할 수 없습니다.' });
-      }
-
-      const rows = sheet.getDataRange().getValues();
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i][0].toString().toLowerCase().trim() === email) {
-          sheet.getRange(i + 1, 5).setValue(role);
-          break;
-        }
-      }
-      return createJsonResponse({ status: 'success', message: '등급이 변경되었습니다.' });
-    }
-
-    return createJsonResponse({ status: 'error', message: '알 수 없는 요청 action: ' + action });
-  } catch (err) {
-    return createJsonResponse({ status: 'error', message: err.toString() });
-  }
-}
-
-function initUsersSheet(ss) {
-  let sheet = ss.getSheetByName("Users");
-  if (!sheet) {
-    sheet = ss.insertSheet("Users");
-    sheet.appendRow(["이메일", "이름", "부서", "신청사유", "등급", "프로필사진", "승인상태", "신청일시", "승인일시"]);
-    sheet.appendRow([
-      SUPER_ADMIN_EMAIL,
-      "김보성 (최고 관리자)",
-      "총괄관리",
-      "시스템 최고 관리자",
-      "admin",
-      "",
-      "approved",
-      "2026-11-01 00:00:00",
-      "2026-11-01 00:00:00"
-    ]);
-    sheet.setFrozenRows(1);
-    const headerRange = sheet.getRange(1, 1, 1, 9);
-    headerRange.setFontWeight("bold").setBackground("#4f46e5").setFontColor("#ffffff");
-  }
-  return sheet;
-}
-
-function getAllUsers(sheet) {
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
-  const users = [];
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (!row[0]) continue;
-    users.push({
-      email: row[0].toString().trim(),
-      name: row[1].toString().trim(),
-      department: row[2].toString().trim(),
-      reason: row[3].toString().trim(),
-      role: row[4].toString().trim() || 'guest',
-      picture: row[5].toString().trim(),
-      status: row[6].toString().trim() || 'pending',
-      requested_at: row[7].toString().trim(),
-      approved_at: row[8].toString().trim(),
-      is_super: (row[0].toString().toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase())
-    });
-  }
-  return users;
-}
-
-function createJsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-\`;
-
 // ============================================================================
 // Google Sheets Cloud Sync Engine (Real-time Cross-Device Storage Layer)
 // ============================================================================
@@ -226,7 +38,7 @@ const CloudSync = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 7000);
-      const res = await fetch(\`\${url}?action=ping\`, {
+      const res = await fetch(url + '?action=ping', {
         method: 'GET',
         signal: controller.signal
       });
@@ -262,7 +74,7 @@ const CloudSync = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(\`\${this.getUrl()}?action=get_users\`, {
+      const res = await fetch(this.getUrl() + '?action=get_users', {
         method: 'GET',
         signal: controller.signal
       });
@@ -291,7 +103,7 @@ const CloudSync = {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch(\`\${this.getUrl()}?action=check_user&email=\${encodeURIComponent(email)}\`, {
+      const res = await fetch(this.getUrl() + '?action=check_user&email=' + encodeURIComponent(email), {
         method: 'GET',
         signal: controller.signal
       });
@@ -1016,9 +828,6 @@ async function handleStaticApi(endpoint, method, body) {
       user: curUser
     };
   }
-
-  return { success: true };
-}
 
   return { success: true };
 }
@@ -1804,16 +1613,19 @@ function initEventListeners() {
   // Cloud Sync: Copy Apps Script Code to Clipboard
   const btnCopyGas = document.getElementById('btn-copy-gas-code');
   if (btnCopyGas) {
-    btnCopyGas.addEventListener('click', () => {
-      const codeToCopy = GAS_BACKEND_CODE;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(codeToCopy).then(() => {
-          showToast('📋 Apps Script 전체 코드가 복사되었습니다! sheets.new 에 붙여넣으세요.', 'success');
-        }).catch(() => {
+    btnCopyGas.addEventListener('click', async () => {
+      try {
+        const res = await fetch('./BOS_S_Office_Backend_Code.gs');
+        if (!res.ok) throw new Error('Fetch failed');
+        const codeToCopy = await res.text();
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(codeToCopy);
+        } else {
           fallbackCopyText(codeToCopy);
-        });
-      } else {
-        fallbackCopyText(codeToCopy);
+        }
+        showToast('📋 Apps Script 전체 코드가 복사되었습니다! sheets.new 에 붙여넣으세요.', 'success');
+      } catch (err) {
+        showToast('BOS_S_Office_Backend_Code.gs 파일 내용을 직접 복사해주세요.', 'info');
       }
     });
   }
