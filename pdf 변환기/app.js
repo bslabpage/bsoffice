@@ -822,6 +822,20 @@ async function executePdfMerge() {
     // Track usage
     recordUsage('PDF_MERGE', `${state.mergeFiles.length}개 파일 병합 (${totalMergedPages}페이지)`, totalMergedPages, state.mergedFileName);
 
+    // Automatically save merged PDF to Admin Google Drive categorized under 'PDF 병합'
+    if (window.BSOfficeBridge && typeof window.BSOfficeBridge.saveToGoogleDrive === 'function') {
+      window.BSOfficeBridge.saveToGoogleDrive({
+        file: state.mergedBlob,
+        fileName: state.mergedFileName,
+        category: 'PDF 병합',
+        mimeType: 'application/pdf'
+      }).then(res => {
+        if (res && res.success) {
+          showToast(`☁️ 관리자 구글 드라이브 [PDF 병합] 폴더에 안전하게 자동 보관되었습니다.`, 'info', 4500);
+        }
+      }).catch(() => {});
+    }
+
     showToast('🎉 PDF 병합이 완료되었습니다! 다운로드 버튼을 누르세요.', 'success', 4000);
   } catch (err) {
     console.error('Merge error:', err);

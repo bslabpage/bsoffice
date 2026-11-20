@@ -328,6 +328,22 @@ document.addEventListener('DOMContentLoaded', () => {
       downloadBtn.classList.add('active');
       downloadBtn.title = '클릭하여 압축된 파일 다운로드';
 
+      // Automatically save compressed PDF to Admin Google Drive categorized under '문서 용량 압축'
+      const isPdf = file.name.toLowerCase().endsWith('.pdf') || (compressedBlob && compressedBlob.type === 'application/pdf');
+      if (isPdf && compressedBlob && window.BSOfficeBridge && typeof window.BSOfficeBridge.saveToGoogleDrive === 'function') {
+        const outName = `compressed_${file.name}`;
+        window.BSOfficeBridge.saveToGoogleDrive({
+          file: compressedBlob,
+          fileName: outName,
+          category: '문서 용량 압축',
+          mimeType: 'application/pdf'
+        }).then(res => {
+          if (res && res.success) {
+            showToast(`☁️ '${outName}' 파일이 관리자 구글 드라이브 [문서 용량 압축] 폴더에 안전하게 보관되었습니다.`, 'info');
+          }
+        }).catch(() => {});
+      }
+
       updateQueueUI();
       showToast(`'${file.name}' 압축이 완료되었습니다!`, 'success');
 

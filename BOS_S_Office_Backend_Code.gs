@@ -1,24 +1,26 @@
 /**
  * ============================================================================
- * BOS'S Office - Google Apps Script 실시간 클라우드 DB 백엔드 (Code.gs)
+ * BOS'S Office - Google Apps Script 실시간 클라우드 DB & 드라이브 백엔드 (Code.gs)
  * ============================================================================
  * 
- * [배포 안내]
- * 1. sheets.new (새 Google 스프레드시트)를 생성합니다.
- * 2. 상단 메뉴 [확장 프로그램] ➔ [Apps Script] 클릭 후 이 파일의 전체 코드를 붙여넣습니다.
- * 3. 우측 상단 [배포] ➔ [새 배포] 클릭
- *    - 유형: 웹 앱 (Web App)
- *    - 설명: BOS'S Office API
- *    - 다음 사용자 권한으로 실행: '나(내 Google 계정)'
- *    - 액세스 권한: '모든 사용자(Anyone)'  <-- 반드시 '모든 사용자'로 설정해야 합니다!
- * 4. 생성된 웹 앱 URL(https://script.google.com/macros/s/.../exec)을 복사하여
- *    BOS'S Office 관리자 대시보드의 클라우드 연동 URL 입력창에 붙여넣습니다.
+ * [배포 및 업데이트 안내]
+ * 1. 구글 스프레드시트의 상단 메뉴 [확장 프로그램] ➔ [Apps Script]를 엽니다.
+ * 2. 기존 코드를 모두 지우고 이 파일(Code.gs)의 전체 코드를 붙여넣은 뒤 저장(Ctrl+S)합니다.
+ * 3. 우측 상단 [배포] ➔ [배포 관리] 클릭 ➔ 연필 모양(수정) 아이콘 클릭
+ *    - 버전: '새 버전' 선택
+ *    - 설명: 'BOS'S Office API (드라이브 자동 저장 지원)' 입력
+ *    - 다음 사용자 권한으로 실행: '나(내 Google 계정 - bosung3116@gmail.com)'
+ *    - 액세스 권한: '모든 사용자(Anyone)'
+ *    ➔ [배포] 버튼 클릭!
+ * 4. ※ 구글 드라이브(DriveApp) 접근 권한 팝업이 뜨면 '고급 ➔ 이동 ➔ 허용'을 클릭하여 승인합니다.
+ *    이후 사용자들이 작업한 PDF 파일이 관리자 구글 드라이브 'BOS'S Office 작업 문서' 폴더에
+ *    항목별(PDF 병합, 문서 용량 압축 등)로 안전하게 자동 저장됩니다.
  */
 
 const SUPER_ADMIN_EMAIL = "bosung3116@gmail.com";
 
 // ============================================================================
-// 1. GET 요청 핸들러 (사용자 목록 조회, 상태 확인, Ping 테스트)
+// 1. GET 요청 핸들러 (사용자 목록 조회, 저장된 파일 목록 조회, 상태 확인, Ping)
 // ============================================================================
 function doGet(e) {
   try {
@@ -43,10 +45,33 @@ function doGet(e) {
       return createJsonResponse({ status: 'success', user: user || null });
     }
 
-    // C. 연결 테스트 Ping
+    // C. 최근 구글 드라이브에 저장된 작업 파일 목록 조회 (관리자 대시보드용)
+    if (action === 'get_drive_files') {
+      const savedSheet = ss.getSheetByName("Saved_Files");
+      if (!savedSheet) {
+        return createJsonResponse({ status: 'success', files: [] });
+      }
+      const fileRows = savedSheet.getDataRange().getValues();
+      const files = [];
+      for (let i = 1; i < fileRows.length; i++) {
+        if (!fileRows[i][0]) continue;
+        files.push({
+          saved_at: fileRows[i][0],
+          category: fileRows[i][1],
+          fileName: fileRows[i][2],
+          userEmail: fileRows[i][3],
+          fileSize: fileRows[i][4],
+          fileUrl: fileRows[i][5]
+        });
+      }
+      // 최신순으로 상위 50개 반환
+      return createJsonResponse({ status: 'success', files: files.reverse().slice(0, 50) });
+    }
+
+    // D. 연결 테스트 Ping
     return createJsonResponse({
       status: 'success',
-      message: "BOS'S Office Cloud DB is online!",
+      message: "BOS'S Office Cloud DB & Drive Engine is online!",
       timestamp: new Date().toISOString()
     });
   } catch (err) {
@@ -55,7 +80,7 @@ function doGet(e) {
 }
 
 // ============================================================================
-// 2. POST 요청 핸들러 (승인 요청, 상태 변경, 등급 지정)
+// 2. POST 요청 핸들러 (승인 요청, 상태/등급 변경, 구글 드라이브 파일 저장)
 // ============================================================================
 function doPost(e) {
   try {
@@ -148,6 +173,67 @@ function doPost(e) {
       return createJsonResponse({ status: 'success', message: '등급이 변경되었습니다.' });
     }
 
+    // D. 사용자가 작업한 PDF/문서 파일 관리자 구글 드라이브에 항목별 자동 저장
+    if (action === 'save_to_drive') {
+      const category = (payload.category || '기타 PDF').trim(); // 예: 'PDF 병합', '문서 용량 압축'
+      const rawFileName = (payload.fileName || ('document_' + new Date().getTime() + '.pdf')).trim();
+      const base64Data = payload.base64Data || '';
+      const userEmail = (payload.userEmail || '익명 사용자').trim();
+      const mimeType = payload.mimeType || 'application/pdf';
+
+      if (!base64Data) {
+        return createJsonResponse({ status: 'error', message: '파일 데이터(base64)가 비어있습니다.' });
+      }
+
+      // 1. 최상위 루트 폴더: "BOS'S Office 작업 문서"
+      const rootFolderName = "BOS'S Office 작업 문서";
+      let rootFolder;
+      const rootFolders = DriveApp.getFoldersByName(rootFolderName);
+      if (rootFolders.hasNext()) {
+        rootFolder = rootFolders.next();
+      } else {
+        rootFolder = DriveApp.createFolder(rootFolderName);
+      }
+
+      // 2. 항목(카테고리)별 서브 폴더: 예: "PDF 병합", "문서 용량 압축"
+      let categoryFolder;
+      const categoryFolders = rootFolder.getFoldersByName(category);
+      if (categoryFolders.hasNext()) {
+        categoryFolder = categoryFolders.next();
+      } else {
+        categoryFolder = rootFolder.createFolder(category);
+      }
+
+      // 3. Base64 디코딩 및 Blob 생성
+      let rawBase64 = base64Data;
+      if (rawBase64.indexOf(';base64,') !== -1) {
+        rawBase64 = rawBase64.split(';base64,')[1];
+      }
+      const decodedBytes = Utilities.base64Decode(rawBase64);
+      const blob = Utilities.newBlob(decodedBytes, mimeType, rawFileName);
+
+      // 4. 구글 드라이브 해당 항목 폴더에 파일 저장
+      const file = categoryFolder.createFile(blob);
+      const nowStr = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
+      file.setDescription(`[BOS'S Office 작업 문서]\n작업자: ${userEmail}\n항목: ${category}\n저장일시: ${nowStr}`);
+
+      // 5. 스프레드시트 'Saved_Files' 탭에 실시간 기록
+      try {
+        logSavedFileToSheet(ss, category, rawFileName, userEmail, file.getUrl(), blob.getBytes().length);
+      } catch (logErr) {
+        // 기록 에러 시에도 파일 생성은 성공했으므로 계속 진행
+      }
+
+      return createJsonResponse({
+        status: 'success',
+        message: '구글 드라이브 [' + category + '] 폴더에 성공적으로 저장되었습니다.',
+        fileId: file.getId(),
+        fileUrl: file.getUrl(),
+        fileName: file.getName(),
+        category: category
+      });
+    }
+
     return createJsonResponse({ status: 'error', message: '알 수 없는 요청 action: ' + action });
   } catch (err) {
     return createJsonResponse({ status: 'error', message: err.toString() });
@@ -206,8 +292,32 @@ function getAllUsers(sheet) {
   return users;
 }
 
+function logSavedFileToSheet(ss, category, fileName, userEmail, fileUrl, byteLength) {
+  let sheet = ss.getSheetByName("Saved_Files");
+  if (!sheet) {
+    sheet = ss.insertSheet("Saved_Files");
+    sheet.appendRow(["저장일시", "항목(카테고리)", "파일명", "작업자 이메일", "용량", "구글 드라이브 링크"]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#4f46e5").setFontColor("#ffffff");
+  }
+  const now = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
+  const sizeFormatted = formatByteSize(byteLength);
+  sheet.appendRow([now, category, fileName, userEmail, sizeFormatted, fileUrl]);
+}
+
+function formatByteSize(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let s = bytes;
+  while (s >= 1024 && i < units.length - 1) {
+    s /= 1024;
+    i++;
+  }
+  return s.toFixed(1) + ' ' + units[i];
+}
+
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
-

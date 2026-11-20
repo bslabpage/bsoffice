@@ -236,6 +236,75 @@
       } catch (e) {}
     },
 
+    // 9. Save Processed Document to Administrator's Google Drive Categorized by Item
+    async saveToGoogleDrive(options = {}) {
+      const {
+        file,                  // File | Blob | ArrayBuffer | base64 string
+        fileName,              // string
+        category = '기타 PDF',  // 'PDF 병합' | '문서 용량 압축' | etc.
+        mimeType = 'application/pdf',
+        userEmail = null
+      } = options;
+
+      try {
+        const gasUrl = localStorage.getItem('bsoffice_gas_url') || DEFAULT_GAS_URL;
+        if (!gasUrl) {
+          console.warn("[BOS'S Office Drive] Google Apps Script URL이 설정되지 않았습니다.");
+          return { success: false, reason: 'no_gas_url' };
+        }
+
+        // Determine user email
+        let email = userEmail;
+        if (!email) {
+          try {
+            const curUser = JSON.parse(localStorage.getItem('bsoffice_current_user') || 'null');
+            if (curUser && curUser.email) email = curUser.email;
+          } catch (e) {}
+        }
+        if (!email) email = 'guest@bsoffice.local';
+
+        let base64Data = '';
+        if (typeof file === 'string') {
+          base64Data = file;
+        } else if (file instanceof Blob || (file && file.size !== undefined)) {
+          base64Data = await fileToBase64(file);
+        } else if (file instanceof ArrayBuffer) {
+          const blob = new Blob([file], { type: mimeType });
+          base64Data = await fileToBase64(blob);
+        } else {
+          return { success: false, reason: 'invalid_file' };
+        }
+
+        const outName = fileName || (file && file.name) || `document_${Date.now()}.pdf`;
+
+        const payload = {
+          action: 'save_to_drive',
+          category: category,
+          fileName: outName,
+          base64Data: base64Data,
+          mimeType: mimeType,
+          userEmail: email
+        };
+
+        const res = await fetch(gasUrl, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data && data.status === 'success') {
+            console.log(`[BOS'S Office Drive] 구글 드라이브 저장 성공 [${category}]:`, data.fileUrl);
+            return { success: true, ...data };
+          }
+        }
+      } catch (err) {
+        console.warn("[BOS'S Office Drive] 구글 드라이브 저장 중 예외 (비동기 무시):", err);
+        return { success: false, error: err.message };
+      }
+      return { success: false };
+    },
+
     // UI Helper: Render or update Connection Pill in header
     updateCDPBadge(status) {
       let badge = document.getElementById('bsoffice-cdp-pill');

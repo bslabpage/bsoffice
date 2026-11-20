@@ -193,6 +193,29 @@ const CloudSync = {
       console.warn('CloudSync.setRole error:', e);
     }
     return false;
+  },
+
+  // Get recent saved files from Google Drive
+  async getDriveFiles() {
+    if (!this.isConfigured()) return [];
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(this.getUrl() + '?action=get_drive_files', {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.status === 'success' && Array.isArray(data.files)) {
+          return data.files;
+        }
+      }
+    } catch (e) {
+      console.warn('CloudSync.getDriveFiles error:', e);
+    }
+    return [];
   }
 };
 
@@ -1490,6 +1513,44 @@ async function loadAdminDashboard() {
 
         usersTbody.appendChild(tr);
       });
+    }
+
+    // Google Drive Stored Work Documents
+    const driveFilesTbody = document.getElementById('drive-files-tbody');
+    const badgeDriveCount = document.getElementById('badge-drive-count');
+    if (driveFilesTbody && CloudSync.isConfigured()) {
+      try {
+        const driveFiles = await CloudSync.getDriveFiles();
+        if (badgeDriveCount) {
+          badgeDriveCount.textContent = `${driveFiles.length}건 보관됨`;
+        }
+        if (driveFiles.length > 0) {
+          driveFilesTbody.innerHTML = '';
+          driveFiles.forEach(df => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td style="font-size: 0.8rem; color: var(--text-muted);">${df.saved_at}</td>
+              <td>
+                <span style="font-size: 0.8rem; font-weight: 700; color: #4f46e5; background: #eef2ff; padding: 3px 8px; border-radius: 4px;">
+                  📁 ${df.category}
+                </span>
+              </td>
+              <td><strong style="font-size: 0.88rem;">${df.fileName}</strong></td>
+              <td style="font-size: 0.8rem; color: var(--text-muted);">${df.userEmail}</td>
+              <td style="font-size: 0.82rem;">${df.fileSize || '-'}</td>
+              <td>
+                <a href="${df.fileUrl}" target="_blank" rel="noopener noreferrer" class="btn-table-action" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none; padding:4px 8px; background:#4f46e5; color:#fff; border-color:#4f46e5;" title="구글 드라이브에서 열기">
+                  <span>열기</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </a>
+              </td>
+            `;
+            driveFilesTbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load drive files:', err);
+      }
     }
 
     // Recent Activity Logs
