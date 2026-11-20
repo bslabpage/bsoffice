@@ -344,6 +344,64 @@
             </div>
           </div>
 
+          <!-- Section: Real-time Cloud DB Synchronization (Google Sheets / Apps Script) -->
+          <div class="admin-section-card" id="admin-cloud-sync-card" style="border: 1px solid #c7d2fe; background: linear-gradient(135deg, #fbfbfe 0%, #f5f7ff 100%);">
+            <div class="section-card-header" style="cursor: pointer;" id="toggle-cloud-sync-header">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 40px; height: 40px; border-radius: 8px; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+                  🌐
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <h3 class="card-title" style="margin: 0;">외부 사용자 실시간 승인 연동 (Google 스프레드시트 클라우드 DB)</h3>
+                    <span id="cloud-sync-badge" class="status-tag pending" style="font-size: 0.72rem;">연동 확인 중...</span>
+                  </div>
+                  <p class="card-subtitle" style="margin: 3px 0 0 0;">
+                    외부에서 접속한 사용자의 구글 로그인 및 승인 요청을 내 구글 시트로 실시간 수신하고 대시보드에서 즉시 승인합니다.
+                  </p>
+                </div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-cloud-panel">
+                설정 / 가이드 보기
+              </button>
+            </div>
+
+            <!-- Expandable Cloud Config Panel -->
+            <div id="cloud-sync-panel" class="hidden" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e7ff;">
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <div>
+                  <label style="display: block; font-size: 0.82rem; font-weight: 700; color: #1e293b; margin-bottom: 6px;">
+                    Google Apps Script Web App URL
+                  </label>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <input type="text" id="input-gas-url" class="form-control" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="flex: 1; min-width: 240px; font-family: monospace; font-size: 0.82rem;" />
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-save-gas-url">저장</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-test-gas-url">연결 테스트</button>
+                  </div>
+                  <p style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">
+                    * 배포된 웹 앱 URL을 입력하면 외부 사용자의 승인 요청이 실시간으로 관리자 화면에 즉시 동기화됩니다.
+                  </p>
+                </div>
+
+                <!-- 2-Minute Setup Guide Box -->
+                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <strong style="font-size: 0.84rem; color: #1e293b;">⚡ 2분 만에 끝나는 Google 스프레드시트 무료 클라우드 DB 연동 가이드</strong>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-gas-code" style="font-size: 0.76rem; font-weight: 700; color: #4f46e5;">
+                      📋 Apps Script 코드 전체 복사
+                    </button>
+                  </div>
+                  <ol style="margin: 0; padding-left: 20px; font-size: 0.8rem; color: #475569; line-height: 1.6;">
+                    <li>구글 드라이브에서 <strong><a href="https://sheets.new" target="_blank" rel="noopener noreferrer" style="color: #4f46e5; text-decoration: underline;">sheets.new</a></strong>(새 스프레드시트)를 열고 상단 메뉴 <strong>[확장 프로그램] ➔ [Apps Script]</strong>를 클릭합니다.</li>
+                    <li>기존 코드를 지우고 우측 상단의 <strong>[📋 Apps Script 코드 전체 복사]</strong> 버튼을 눌러 붙여넣기 한 뒤 저장(Ctrl+S)합니다.</li>
+                    <li>우측 상단 <strong>[배포] ➔ [새 배포]</strong> 클릭 ➔ 유형: <strong>웹 앱(Web App)</strong> 선택 ➔ <strong>다음 사용자 권한으로 실행: '나(bosung3116@gmail.com)'</strong>, <strong>액세스 권한: '모든 사용자(Anyone)'</strong>로 설정 후 배포합니다.</li>
+                    <li>생성된 <strong>웹 앱 URL(https://script.google.com/macros/s/.../exec)</strong>을 위 입력창에 붙여넣고 [저장]을 누르면 완료됩니다!</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Section: User Access Approvals Management -->
           <div class="admin-section-card">
             <div class="section-card-header">

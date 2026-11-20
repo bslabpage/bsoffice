@@ -6,6 +6,411 @@
 
 const GOOGLE_CLIENT_ID = '659290198207-jo65ar0u3439lp5mf1rbkpmrvqhujmcl.apps.googleusercontent.com';
 const ADMIN_EMAIL = 'bosung3116@gmail.com';
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx2HG6H8ZcqbtF0lNxY5aZGew4feCk8sMIbPLHQnEYaWpGG7GujQBa7Tjubty5ZyAAw/exec';
+
+// Embedded Google Apps Script Backend Source Code (For one-click copy in admin console)
+const GAS_BACKEND_CODE = `/**
+ * ============================================================================
+ * BOS'S Office - Google Apps Script 실시간 클라우드 DB 백엔드 (Code.gs)
+ * ============================================================================
+ * 
+ * [배포 안내]
+ * 1. sheets.new (새 Google 스프레드시트)를 생성합니다.
+ * 2. 상단 메뉴 [확장 프로그램] ➔ [Apps Script] 클릭 후 이 파일의 전체 코드를 붙여넣습니다.
+ * 3. 우측 상단 [배포] ➔ [새 배포] 클릭
+ *    - 유형: 웹 앱 (Web App)
+ *    - 설명: BOS'S Office API
+ *    - 다음 사용자 권한으로 실행: '나(내 Google 계정)'
+ *    - 액세스 권한: '모든 사용자(Anyone)'  <-- 반드시 '모든 사용자'로 설정해야 합니다!
+ * 4. 생성된 웹 앱 URL(https://script.google.com/macros/s/.../exec)을 복사하여
+ *    BOS'S Office 관리자 대시보드의 클라우드 연동 URL 입력창에 붙여넣습니다.
+ */
+
+const SUPER_ADMIN_EMAIL = "bosung3116@gmail.com";
+
+function doGet(e) {
+  try {
+    const action = (e && e.parameter && e.parameter.action) || 'ping';
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Users");
+    if (!sheet) sheet = initUsersSheet(ss);
+
+    if (action === 'get_users') {
+      const users = getAllUsers(sheet);
+      return createJsonResponse({ status: 'success', users: users });
+    }
+
+    if (action === 'check_user') {
+      const email = (e.parameter.email || '').toLowerCase().trim();
+      const users = getAllUsers(sheet);
+      const user = users.find(function(u) { return u.email.toLowerCase() === email; });
+      return createJsonResponse({ status: 'success', user: user || null });
+    }
+
+    return createJsonResponse({
+      status: 'success',
+      message: "BOS'S Office Cloud DB is online!",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    return createJsonResponse({ status: 'error', message: err.toString() });
+  }
+}
+
+function doPost(e) {
+  try {
+    let payload = {};
+    if (e && e.postData && e.postData.contents) {
+      payload = JSON.parse(e.postData.contents);
+    }
+    const action = payload.action;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Users");
+    if (!sheet) sheet = initUsersSheet(ss);
+
+    if (action === 'request_access') {
+      const email = (payload.email || '').toLowerCase().trim();
+      const name = (payload.name || email.split('@')[0]).trim();
+      const dept = payload.department || '';
+      const reason = payload.reason || '';
+      const now = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
+
+      const rows = sheet.getDataRange().getValues();
+      let rowIndex = -1;
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0].toString().toLowerCase().trim() === email) {
+          rowIndex = i + 1;
+          break;
+        }
+      }
+
+      if (rowIndex > 0) {
+        sheet.getRange(rowIndex, 2).setValue(name);
+        sheet.getRange(rowIndex, 3).setValue(dept);
+        sheet.getRange(rowIndex, 4).setValue(reason);
+        sheet.getRange(rowIndex, 7).setValue('pending');
+        sheet.getRange(rowIndex, 8).setValue(now);
+      } else {
+        sheet.appendRow([email, name, dept, reason, 'guest', payload.picture || '', 'pending', now, '']);
+      }
+
+      return createJsonResponse({
+        status: 'success',
+        message: '승인 요청이 클라우드 데이터베이스에 성공적으로 접수되었습니다.'
+      });
+    }
+
+    if (action === 'update_status') {
+      const email = (payload.email || '').toLowerCase().trim();
+      const status = payload.status;
+      const now = Utilities.formatDate(new Date(), "Asia/Seoul", "yyyy-MM-dd HH:mm:ss");
+
+      const rows = sheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0].toString().toLowerCase().trim() === email) {
+          const rowNum = i + 1;
+          sheet.getRange(rowNum, 7).setValue(status);
+          if (status === 'approved') {
+            sheet.getRange(rowNum, 9).setValue(now);
+            if (rows[i][4] === 'guest') sheet.getRange(rowNum, 5).setValue('member');
+          }
+          break;
+        }
+      }
+      return createJsonResponse({ status: 'success', message: '상태가 변경되었습니다.' });
+    }
+
+    if (action === 'set_role') {
+      const email = (payload.email || '').toLowerCase().trim();
+      const role = payload.role;
+
+      if (email === SUPER_ADMIN_EMAIL.toLowerCase()) {
+        return createJsonResponse({ status: 'error', message: '최고 관리자의 등급은 변경할 수 없습니다.' });
+      }
+
+      const rows = sheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0].toString().toLowerCase().trim() === email) {
+          sheet.getRange(i + 1, 5).setValue(role);
+          break;
+        }
+      }
+      return createJsonResponse({ status: 'success', message: '등급이 변경되었습니다.' });
+    }
+
+    return createJsonResponse({ status: 'error', message: '알 수 없는 요청 action: ' + action });
+  } catch (err) {
+    return createJsonResponse({ status: 'error', message: err.toString() });
+  }
+}
+
+function initUsersSheet(ss) {
+  let sheet = ss.getSheetByName("Users");
+  if (!sheet) {
+    sheet = ss.insertSheet("Users");
+    sheet.appendRow(["이메일", "이름", "부서", "신청사유", "등급", "프로필사진", "승인상태", "신청일시", "승인일시"]);
+    sheet.appendRow([
+      SUPER_ADMIN_EMAIL,
+      "김보성 (최고 관리자)",
+      "총괄관리",
+      "시스템 최고 관리자",
+      "admin",
+      "",
+      "approved",
+      "2026-11-01 00:00:00",
+      "2026-11-01 00:00:00"
+    ]);
+    sheet.setFrozenRows(1);
+    const headerRange = sheet.getRange(1, 1, 1, 9);
+    headerRange.setFontWeight("bold").setBackground("#4f46e5").setFontColor("#ffffff");
+  }
+  return sheet;
+}
+
+function getAllUsers(sheet) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const users = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row[0]) continue;
+    users.push({
+      email: row[0].toString().trim(),
+      name: row[1].toString().trim(),
+      department: row[2].toString().trim(),
+      reason: row[3].toString().trim(),
+      role: row[4].toString().trim() || 'guest',
+      picture: row[5].toString().trim(),
+      status: row[6].toString().trim() || 'pending',
+      requested_at: row[7].toString().trim(),
+      approved_at: row[8].toString().trim(),
+      is_super: (row[0].toString().toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase())
+    });
+  }
+  return users;
+}
+
+function createJsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+\`;
+
+// ============================================================================
+// Google Sheets Cloud Sync Engine (Real-time Cross-Device Storage Layer)
+// ============================================================================
+const CloudSync = {
+  getUrl() {
+    return localStorage.getItem('bsoffice_gas_url') || DEFAULT_GAS_URL || '';
+  },
+
+  setUrl(url) {
+    if (url) {
+      localStorage.setItem('bsoffice_gas_url', url.trim());
+    } else {
+      localStorage.removeItem('bsoffice_gas_url');
+    }
+  },
+
+  isConfigured() {
+    const url = this.getUrl();
+    return !!url && url.startsWith('https://script.google.com/macros/s/');
+  },
+
+  // Ping test
+  async ping() {
+    const url = this.getUrl();
+    if (!this.isConfigured()) {
+      return { success: false, message: 'Google Apps Script URL이 설정되지 않았습니다.' };
+    }
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 7000);
+      const res = await fetch(\`\${url}?action=ping\`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      // Check if redirected to Google sign-in
+      if (res.url && res.url.includes('accounts.google.com')) {
+        return {
+          success: false,
+          isAuthRedirect: true,
+          message: "Google 로그인 페이지로 리디렉션되었습니다. Apps Script 배포 설정에서 '액세스 권한'을 '모든 사용자(Anyone)'로 변경해주세요."
+        };
+      }
+
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.status === 'success') {
+          return { success: true, message: "BOS'S Office 클라우드 DB 정상 연결 완료" };
+        }
+      }
+      return { success: false, message: '응답 데이터 파싱 실패 또는 상태 오류' };
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        return { success: false, message: '연결 시간 초과 (7초)' };
+      }
+      return { success: false, message: e.message || '네트워크 연결 오류' };
+    }
+  },
+
+  // Fetch all users from Google Sheet
+  async getUsers() {
+    if (!this.isConfigured()) return null;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(\`\${this.getUrl()}?action=get_users\`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      if (res.url && res.url.includes('accounts.google.com')) {
+        console.warn('Apps Script requires login. Please set Who has access to Anyone.');
+        return null;
+      }
+
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.status === 'success' && Array.isArray(data.users)) {
+          return data.users;
+        }
+      }
+    } catch (e) {
+      console.warn('CloudSync.getUsers error:', e);
+    }
+    return null;
+  },
+
+  // Check single user status & role from Google Sheet
+  async checkUser(email) {
+    if (!this.isConfigured() || !email) return null;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(\`\${this.getUrl()}?action=check_user&email=\${encodeURIComponent(email)}\`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      if (res.url && res.url.includes('accounts.google.com')) return null;
+
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.status === 'success' && data.user) {
+          return data.user;
+        }
+      }
+    } catch (e) {
+      console.warn('CloudSync.checkUser error:', e);
+    }
+    return null;
+  },
+
+  // Send approval request to Google Sheet (Plain POST without json header to prevent OPTIONS preflight)
+  async requestAccess(userReq) {
+    if (!this.isConfigured()) return false;
+    try {
+      const payload = {
+        action: 'request_access',
+        email: userReq.email,
+        name: userReq.name,
+        picture: userReq.picture || '',
+        department: userReq.department,
+        reason: userReq.reason
+      };
+
+      const res = await fetch(this.getUrl(), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.status === 'success';
+      }
+    } catch (e) {
+      console.warn('CloudSync.requestAccess error:', e);
+    }
+    return false;
+  },
+
+  // Update status (approved / rejected / pending)
+  async updateStatus(email, status) {
+    if (!this.isConfigured()) return false;
+    try {
+      const payload = { action: 'update_status', email, status };
+      const res = await fetch(this.getUrl(), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.status === 'success';
+      }
+    } catch (e) {
+      console.warn('CloudSync.updateStatus error:', e);
+    }
+    return false;
+  },
+
+  // Set role (admin / member / guest)
+  async setRole(email, role) {
+    if (!this.isConfigured()) return false;
+    try {
+      const payload = { action: 'set_role', email, role };
+      const res = await fetch(this.getUrl(), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.status === 'success';
+      }
+    } catch (e) {
+      console.warn('CloudSync.setRole error:', e);
+    }
+    return false;
+  }
+};
+
+// Sync logged-in user profile & approval status with Cloud DB
+async function syncUserWithCloud(user) {
+  if (!CloudSync.isConfigured() || !user || !user.email) return user;
+  try {
+    const cloudUser = await CloudSync.checkUser(user.email);
+    if (cloudUser) {
+      let changed = false;
+      if (cloudUser.status && cloudUser.status !== user.status) {
+        user.status = cloudUser.status;
+        changed = true;
+      }
+      if (cloudUser.role && cloudUser.role !== user.role) {
+        user.role = cloudUser.role;
+        changed = true;
+      }
+      if (cloudUser.department) user.department = cloudUser.department;
+      if (cloudUser.reason) user.reason = cloudUser.reason;
+
+      if (changed) {
+        const users = Storage.getUsers();
+        const idx = users.findIndex(u => u.email.toLowerCase() === user.email.toLowerCase());
+        if (idx !== -1) {
+          users[idx] = { ...users[idx], ...user };
+          Storage.saveUsers(users);
+        }
+        Storage.setCurrentUser(user);
+      }
+    }
+  } catch (e) {
+    console.warn('syncUserWithCloud error:', e);
+  }
+  return user;
+}
 
 // Default Office Tools (Relative Paths for GitHub Pages)
 const DEFAULT_APPS = [
@@ -269,8 +674,8 @@ function loginUserDirect(email, name, picture = '') {
       picture,
       role: isSuperAdmin ? 'admin' : 'guest',
       status: isSuperAdmin ? 'approved' : 'pending',
-      department: isSuperAdmin ? '총괄관리' : '테스트팀',
-      reason: isSuperAdmin ? '시스템 최고 관리자' : '일반 승인 요청 테스트용',
+      department: isSuperAdmin ? '총괄관리' : '신규가입',
+      reason: isSuperAdmin ? '시스템 최고 관리자' : '사이트 이용 승인 요청 대기',
       requested_at: isSuperAdmin ? '' : new Date().toLocaleString('ko-KR'),
       approved_at: isSuperAdmin ? new Date().toLocaleString('ko-KR') : '',
       created_at: new Date().toLocaleString('ko-KR'),
@@ -290,10 +695,17 @@ function loginUserDirect(email, name, picture = '') {
   Storage.saveUsers(users);
   Storage.setCurrentUser(user);
   setAuthenticatedUser(user);
+
+  // Background Cloud Sync for external user check
+  if (CloudSync.isConfigured() && !isSuperAdmin) {
+    syncUserWithCloud(user).then(syncedUser => {
+      if (syncedUser) setAuthenticatedUser(syncedUser);
+    });
+  }
 }
 
 // ============================================================================
-// API Helpers (Pure Client-side Static Simulation for GitHub Pages)
+// API Helpers (Pure Client-side Static Simulation & Cloud DB Integration)
 // ============================================================================
 async function apiCall(endpoint, method = 'GET', body = null) {
   // Try real server if on localhost with server.py running
@@ -317,11 +729,11 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     }
   }
 
-  // Pure Client-side Static Simulation
-  return handleStaticApi(endpoint, method, body);
+  // Pure Client-side Static Simulation & Cloud DB Integration
+  return await handleStaticApi(endpoint, method, body);
 }
 
-function handleStaticApi(endpoint, method, body) {
+async function handleStaticApi(endpoint, method, body) {
   const normEndpoint = endpoint.split('?')[0];
 
   // 1. Config
@@ -419,9 +831,43 @@ function handleStaticApi(endpoint, method, body) {
     };
   }
 
-  // 6. Admin users
+  // 6. Admin users (Cloud Sync merged)
   if (normEndpoint === '/api/admin/users') {
-    const users = Storage.getUsers();
+    let users = Storage.getUsers();
+
+    // Pull external user requests from Google Sheets if configured
+    if (CloudSync.isConfigured()) {
+      try {
+        const cloudUsers = await CloudSync.getUsers();
+        if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+          const localMap = new Map(users.map(u => [u.email.toLowerCase(), u]));
+          cloudUsers.forEach(cu => {
+            const emailLower = cu.email.toLowerCase();
+            if (localMap.has(emailLower)) {
+              const existing = localMap.get(emailLower);
+              if (existing.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+                existing.name = cu.name || existing.name;
+                existing.department = cu.department || existing.department;
+                existing.reason = cu.reason || existing.reason;
+                existing.role = cu.role || existing.role;
+                existing.status = cu.status || existing.status;
+                existing.requested_at = cu.requested_at || existing.requested_at;
+                existing.approved_at = cu.approved_at || existing.approved_at;
+              }
+            } else {
+              users.push({
+                ...cu,
+                created_at: cu.requested_at || new Date().toLocaleString('ko-KR')
+              });
+            }
+          });
+          Storage.saveUsers(users);
+        }
+      } catch (err) {
+        console.warn('Failed to sync users from Google Sheets:', err);
+      }
+    }
+
     const logs = Storage.getLogs();
     const withUsage = users.map(u => ({
       ...u,
@@ -447,6 +893,12 @@ function handleStaticApi(endpoint, method, body) {
         Storage.setCurrentUser(state.currentUser);
       }
     }
+
+    // Sync to Cloud DB
+    if (CloudSync.isConfigured()) {
+      await CloudSync.updateStatus(body.email, 'approved');
+    }
+
     return { success: true, message: `${body.email} 계정이 승인되었습니다.` };
   }
 
@@ -462,6 +914,12 @@ function handleStaticApi(endpoint, method, body) {
         Storage.setCurrentUser(state.currentUser);
       }
     }
+
+    // Sync to Cloud DB
+    if (CloudSync.isConfigured()) {
+      await CloudSync.updateStatus(body.email, 'rejected');
+    }
+
     return { success: true, message: `${body.email} 계정이 거절되었습니다.` };
   }
 
@@ -477,6 +935,12 @@ function handleStaticApi(endpoint, method, body) {
         Storage.setCurrentUser(state.currentUser);
       }
     }
+
+    // Sync to Cloud DB
+    if (CloudSync.isConfigured()) {
+      await CloudSync.updateStatus(body.email, 'pending');
+    }
+
     return { success: true, message: `${body.email} 계정이 보류되었습니다.` };
   }
 
@@ -495,6 +959,12 @@ function handleStaticApi(endpoint, method, body) {
         Storage.setCurrentUser(state.currentUser);
       }
     }
+
+    // Sync to Cloud DB
+    if (CloudSync.isConfigured()) {
+      await CloudSync.setRole(body.email, body.role);
+    }
+
     return { success: true, message: `${body.email} 계정의 등급이 '${body.role}'(으)로 변경되었습니다.` };
   }
 
@@ -520,12 +990,35 @@ function handleStaticApi(endpoint, method, body) {
     curUser.status = 'pending';
     Storage.setCurrentUser(curUser);
 
+    // Real-time Push to Cloud (Google Sheets)
+    let cloudSynced = false;
+    if (CloudSync.isConfigured()) {
+      try {
+        cloudSynced = await CloudSync.requestAccess({
+          email: curUser.email,
+          name: curUser.name,
+          picture: curUser.picture,
+          department: body.department,
+          reason: body.reason
+        });
+      } catch (e) {
+        console.warn('Cloud sync error on request_access:', e);
+      }
+    }
+
+    const msg = cloudSynced
+      ? `관리자(${ADMIN_EMAIL})의 Google 스프레드시트 클라우드 DB에 실시간 승인 요청이 전송되었습니다!`
+      : `관리자(${ADMIN_EMAIL})에게 사용 승인 요청이 접수되었습니다.`;
+
     return {
       success: true,
-      message: `관리자(${ADMIN_EMAIL})에게 사용 승인 요청이 접수되었습니다.`,
+      message: msg,
       user: curUser
     };
   }
+
+  return { success: true };
+}
 
   return { success: true };
 }
@@ -569,7 +1062,8 @@ async function checkAuth() {
   try {
     const res = await apiCall('/api/auth/me');
     if (res.authenticated && res.user) {
-      setAuthenticatedUser(res.user);
+      const syncedUser = await syncUserWithCloud(res.user);
+      setAuthenticatedUser(syncedUser);
     } else {
       setUnauthenticated();
     }
@@ -1039,9 +1533,47 @@ async function loadAdminDashboard() {
       logsTbody.appendChild(tr);
     });
 
+    // Update Cloud DB status badge & input
+    updateCloudSyncUI();
+
   } catch (err) {
     console.error("Admin dashboard load error:", err);
     showToast('관리자 데이터 조회 중 오류가 발생했습니다.', 'error');
+  }
+}
+
+// ============================================================================
+// Cloud DB UI Controller (Google Sheets Sync Status)
+// ============================================================================
+async function updateCloudSyncUI() {
+  const badge = document.getElementById('cloud-sync-badge');
+  const inputUrl = document.getElementById('input-gas-url');
+  if (!badge) return;
+
+  const currentUrl = CloudSync.getUrl();
+  if (inputUrl && !inputUrl.value) {
+    inputUrl.value = currentUrl;
+  }
+
+  if (!CloudSync.isConfigured()) {
+    badge.textContent = '⚠️ 로컬 모드 (연동 필요)';
+    badge.className = 'status-tag pending';
+    return;
+  }
+
+  badge.textContent = '🔄 연결 확인 중...';
+  badge.className = 'status-tag pending';
+
+  const pingResult = await CloudSync.ping();
+  if (pingResult.success) {
+    badge.textContent = '✅ 클라우드 DB 연동 정상 (Google Sheets)';
+    badge.className = 'status-tag approved';
+  } else if (pingResult.isAuthRedirect) {
+    badge.textContent = '⚠️ 배포 권한 확인 필요 (모든 사용자)';
+    badge.className = 'status-tag rejected';
+  } else {
+    badge.textContent = '⚠️ 클라우드 연결 지연 (로컬 캐시 동작)';
+    badge.className = 'status-tag pending';
   }
 }
 
@@ -1193,7 +1725,98 @@ function initEventListeners() {
   });
 
   // Admin Refresh Button
-  document.getElementById('btn-refresh-admin').addEventListener('click', loadAdminDashboard);
+  document.getElementById('btn-refresh-admin').addEventListener('click', async () => {
+    showToast('최신 클라우드 및 사용자 데이터를 동기화 중입니다...', 'info');
+    await loadAdminDashboard();
+    showToast('대시보드가 새로고침되었습니다.', 'success');
+  });
+
+  // Cloud Sync Panel Toggle Header & Button
+  const toggleHeader = document.getElementById('toggle-cloud-sync-header');
+  const toggleBtn = document.getElementById('btn-toggle-cloud-panel');
+  const cloudPanel = document.getElementById('cloud-sync-panel');
+
+  const togglePanelAction = () => {
+    if (cloudPanel) {
+      cloudPanel.classList.toggle('hidden');
+      if (toggleBtn) {
+        toggleBtn.textContent = cloudPanel.classList.contains('hidden') ? '설정 / 가이드 보기' : '패널 닫기';
+      }
+    }
+  };
+
+  if (toggleHeader) {
+    toggleHeader.addEventListener('click', (e) => {
+      if (e.target.closest('#btn-toggle-cloud-panel')) return;
+      togglePanelAction();
+    });
+  }
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePanelAction();
+    });
+  }
+
+  // Cloud Sync: Save Apps Script URL
+  const btnSaveGas = document.getElementById('btn-save-gas-url');
+  if (btnSaveGas) {
+    btnSaveGas.addEventListener('click', async () => {
+      const input = document.getElementById('input-gas-url');
+      const val = input ? input.value.trim() : '';
+      if (!val) {
+        CloudSync.setUrl('');
+        showToast('클라우드 연동 URL이 해제되었습니다. (로컬 모드로 전환)', 'info');
+      } else if (!val.startsWith('https://script.google.com/macros/s/')) {
+        showToast('올바른 Google Apps Script Web App URL 형식(https://script.google.com/macros/s/.../exec)을 입력해주세요.', 'warning');
+        return;
+      } else {
+        CloudSync.setUrl(val);
+        showToast('Apps Script URL이 저장되었습니다. 연결 상태를 확인합니다...', 'info');
+      }
+      await updateCloudSyncUI();
+      await loadAdminDashboard();
+    });
+  }
+
+  // Cloud Sync: Connection Test (Ping)
+  const btnTestGas = document.getElementById('btn-test-gas-url');
+  if (btnTestGas) {
+    btnTestGas.addEventListener('click', async () => {
+      btnTestGas.disabled = true;
+      btnTestGas.textContent = '테스트 중...';
+      const res = await CloudSync.ping();
+      btnTestGas.disabled = false;
+      btnTestGas.textContent = '연결 테스트';
+
+      if (res.success) {
+        showToast('🎉 Google Sheets 클라우드 DB 연결 성공! 실시간 연동이 정상 작동합니다.', 'success');
+      } else if (res.isAuthRedirect) {
+        alert("⚠️ Google 계정 로그인 리디렉션 감지!\n\n현재 Apps Script 배포의 '액세스할 수 있는 사용자'가 '나만(Only myself)'으로 되어 있어 외부 사용자의 승인 요청을 수신할 수 없습니다.\n\n[해결 방법]\n1. Apps Script 편집기 우측 상단 [배포] ➔ [배포 관리] ➔ [수정(연필 아이콘)]\n2. '액세스할 수 있는 사용자(Who has access)'를 반드시 '모든 사용자(Anyone)'로 변경\n3. [배포] 버튼 클릭 후 다시 테스트해주세요.");
+        showToast('Apps Script 배포 액세스 권한을 "모든 사용자"로 변경해주세요.', 'warning');
+      } else {
+        showToast(`연결 실패: ${res.message}`, 'error');
+      }
+      await updateCloudSyncUI();
+    });
+  }
+
+  // Cloud Sync: Copy Apps Script Code to Clipboard
+  const btnCopyGas = document.getElementById('btn-copy-gas-code');
+  if (btnCopyGas) {
+    btnCopyGas.addEventListener('click', () => {
+      const codeToCopy = GAS_BACKEND_CODE;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(codeToCopy).then(() => {
+          showToast('📋 Apps Script 전체 코드가 복사되었습니다! sheets.new 에 붙여넣으세요.', 'success');
+        }).catch(() => {
+          fallbackCopyText(codeToCopy);
+        });
+      } else {
+        fallbackCopyText(codeToCopy);
+      }
+    });
+  }
 
   // Close Modal Buttons
   document.querySelectorAll('[data-close-modal]').forEach(btn => {
@@ -1246,4 +1869,27 @@ function showToast(message, type = 'info') {
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 300);
   }, 3500);
+}
+
+// Fallback clipboard copy for browsers or environments without navigator.clipboard
+function fallbackCopyText(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (successful) {
+      showToast('📋 Apps Script 전체 코드가 복사되었습니다! sheets.new 에 붙여넣으세요.', 'success');
+    } else {
+      showToast('복사에 실패했습니다. BOS_S_Office_Backend_Code.gs 파일을 직접 복사해주세요.', 'error');
+    }
+  } catch (err) {
+    showToast('복사에 실패했습니다. BOS_S_Office_Backend_Code.gs 파일을 직접 복사해주세요.', 'error');
+  }
 }
