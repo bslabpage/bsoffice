@@ -89,27 +89,35 @@ const APP_ICONS = {
 // ============================================================================
 const Storage = {
   getUsers() {
+    let users = [];
     try {
       const data = localStorage.getItem('bsoffice_users');
-      if (data) return JSON.parse(data);
+      if (data) users = JSON.parse(data);
     } catch (e) {}
-    
-    // Seed default admin
-    const defaultUsers = [
-      {
+
+    // Ensure super admin bosung3116@gmail.com is always registered and immutable
+    let admin = users.find(u => u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+    if (!admin) {
+      admin = {
         email: ADMIN_EMAIL,
-        name: "관리자 (김보성)",
+        name: "김보성 (최고 관리자)",
         picture: "",
         role: "admin",
         status: "approved",
         department: "총괄관리",
-        reason: "시스템 관리자",
+        reason: "시스템 최고 관리자",
         approved_at: "2026-11-01 00:00:00",
-        created_at: "2026-11-01 00:00:00"
-      }
-    ];
-    localStorage.setItem('bsoffice_users', JSON.stringify(defaultUsers));
-    return defaultUsers;
+        created_at: "2026-11-01 00:00:00",
+        is_super: true
+      };
+      users.unshift(admin);
+    } else {
+      admin.role = "admin";
+      admin.status = "approved";
+      admin.is_super = true;
+    }
+    localStorage.setItem('bsoffice_users', JSON.stringify(users));
+    return users;
   },
 
   saveUsers(users) {
@@ -249,7 +257,7 @@ function parseJwt(token) {
 function loginUserDirect(email, name, picture = '') {
   email = email.trim().toLowerCase();
   name = (name || email.split('@')[0]).trim();
-  const isAdmin = (email === ADMIN_EMAIL.toLowerCase());
+  const isSuperAdmin = (email === ADMIN_EMAIL.toLowerCase());
 
   const users = Storage.getUsers();
   let user = users.find(u => u.email.toLowerCase() === email);
@@ -259,19 +267,21 @@ function loginUserDirect(email, name, picture = '') {
       email,
       name,
       picture,
-      role: isAdmin ? 'admin' : 'user',
-      status: isAdmin ? 'approved' : 'pending',
-      department: '',
-      reason: '',
-      requested_at: '',
-      approved_at: isAdmin ? new Date().toLocaleString('ko-KR') : '',
-      created_at: new Date().toLocaleString('ko-KR')
+      role: isSuperAdmin ? 'admin' : 'guest',
+      status: isSuperAdmin ? 'approved' : 'pending',
+      department: isSuperAdmin ? '총괄관리' : '테스트팀',
+      reason: isSuperAdmin ? '시스템 최고 관리자' : '일반 승인 요청 테스트용',
+      requested_at: isSuperAdmin ? '' : new Date().toLocaleString('ko-KR'),
+      approved_at: isSuperAdmin ? new Date().toLocaleString('ko-KR') : '',
+      created_at: new Date().toLocaleString('ko-KR'),
+      is_super: isSuperAdmin
     };
     users.push(user);
   } else {
-    if (isAdmin) {
+    if (isSuperAdmin) {
       user.role = 'admin';
       user.status = 'approved';
+      user.is_super = true;
     }
     if (picture) user.picture = picture;
     if (name) user.name = name;
@@ -420,27 +430,72 @@ function handleStaticApi(endpoint, method, body) {
     return { users: withUsage };
   }
 
-  // 7. Admin approve
+  // 7. Admin approve (승인)
   if (normEndpoint === '/api/admin/approve') {
     const users = Storage.getUsers();
     const target = users.find(u => u.email.toLowerCase() === body.email.toLowerCase());
     if (target) {
       target.status = 'approved';
       target.approved_at = new Date().toLocaleString('ko-KR');
+      if (target.role === 'guest') {
+        target.role = 'member'; // 기본 회원 등급 부여
+      }
       Storage.saveUsers(users);
+      if (state.currentUser && state.currentUser.email.toLowerCase() === target.email.toLowerCase()) {
+        state.currentUser.status = 'approved';
+        state.currentUser.role = target.role;
+        Storage.setCurrentUser(state.currentUser);
+      }
     }
     return { success: true, message: `${body.email} 계정이 승인되었습니다.` };
   }
 
-  // 8. Admin reject
+  // 8. Admin reject (거절)
   if (normEndpoint === '/api/admin/reject') {
     const users = Storage.getUsers();
     const target = users.find(u => u.email.toLowerCase() === body.email.toLowerCase());
     if (target) {
       target.status = 'rejected';
       Storage.saveUsers(users);
+      if (state.currentUser && state.currentUser.email.toLowerCase() === target.email.toLowerCase()) {
+        state.currentUser.status = 'rejected';
+        Storage.setCurrentUser(state.currentUser);
+      }
     }
     return { success: true, message: `${body.email} 계정이 거절되었습니다.` };
+  }
+
+  // Admin hold (보류)
+  if (normEndpoint === '/api/admin/hold') {
+    const users = Storage.getUsers();
+    const target = users.find(u => u.email.toLowerCase() === body.email.toLowerCase());
+    if (target) {
+      target.status = 'pending';
+      Storage.saveUsers(users);
+      if (state.currentUser && state.currentUser.email.toLowerCase() === target.email.toLowerCase()) {
+        state.currentUser.status = 'pending';
+        Storage.setCurrentUser(state.currentUser);
+      }
+    }
+    return { success: true, message: `${body.email} 계정이 보류되었습니다.` };
+  }
+
+  // Admin set role (등급 지정: admin, member, guest)
+  if (normEndpoint === '/api/admin/set_role') {
+    const users = Storage.getUsers();
+    const target = users.find(u => u.email.toLowerCase() === body.email.toLowerCase());
+    if (target) {
+      if (target.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        throw new Error('최고 관리자의 등급은 변경할 수 없습니다.');
+      }
+      target.role = body.role; // 'admin' | 'member' | 'guest'
+      Storage.saveUsers(users);
+      if (state.currentUser && state.currentUser.email.toLowerCase() === target.email.toLowerCase()) {
+        state.currentUser.role = body.role;
+        Storage.setCurrentUser(state.currentUser);
+      }
+    }
+    return { success: true, message: `${body.email} 계정의 등급이 '${body.role}'(으)로 변경되었습니다.` };
   }
 
   // 9. Request access
@@ -451,7 +506,7 @@ function handleStaticApi(endpoint, method, body) {
     const users = Storage.getUsers();
     let target = users.find(u => u.email.toLowerCase() === curUser.email.toLowerCase());
     if (!target) {
-      target = { ...curUser, role: 'user', created_at: new Date().toLocaleString('ko-KR') };
+      target = { ...curUser, role: 'guest', created_at: new Date().toLocaleString('ko-KR') };
       users.push(target);
     }
     target.department = body.department;
@@ -523,6 +578,14 @@ async function checkAuth() {
   }
 }
 
+function canAccessTools(user) {
+  if (!user) return false;
+  const isSuperAdmin = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  if (isSuperAdmin || user.role === 'admin') return true;
+  if (user.role === 'member' && user.status === 'approved') return true;
+  return false;
+}
+
 function setAuthenticatedUser(user) {
   state.currentUser = user;
 
@@ -540,49 +603,66 @@ function setAuthenticatedUser(user) {
   const roleBadge = document.getElementById('user-role-badge');
   const statusText = document.getElementById('user-status-text');
   const dropdownStatus = document.getElementById('dropdown-user-status');
+  const switchAdminBtn = document.getElementById('dropdown-btn-switch-admin');
 
-  const isAdmin = (user.role === 'admin' || user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+  const isSuperAdmin = (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+  const isAdmin = (user.role === 'admin' || isSuperAdmin);
 
   if (isAdmin) {
-    roleBadge.textContent = '관리자';
+    roleBadge.textContent = isSuperAdmin ? '최고관리자' : '관리자';
     roleBadge.className = 'role-badge admin';
-    statusText.textContent = '최고관리자';
+    statusText.textContent = isSuperAdmin ? '최고관리자' : '관리자 권한';
     statusText.className = 'user-status-text approved';
-    dropdownStatus.textContent = '권한: 최고관리자 (승인됨)';
+    dropdownStatus.textContent = isSuperAdmin ? '권한: 최고관리자 (승인됨)' : '권한: 관리자 (승인됨)';
 
     // Show admin controls
     document.getElementById('tab-admin').classList.remove('hidden');
     document.getElementById('dropdown-btn-admin').classList.remove('hidden');
     document.getElementById('dropdown-btn-request').classList.add('hidden');
     document.getElementById('approval-notice-banner').classList.add('hidden');
+    if (switchAdminBtn) switchAdminBtn.classList.add('hidden');
   } else {
-    roleBadge.textContent = '회원';
-    roleBadge.className = 'role-badge user';
-
     document.getElementById('tab-admin').classList.add('hidden');
     document.getElementById('dropdown-btn-admin').classList.add('hidden');
+    if (switchAdminBtn) switchAdminBtn.classList.remove('hidden');
 
-    if (user.status === 'approved') {
+    const roleName = user.role === 'member' ? '회원' : '비회원';
+    roleBadge.textContent = roleName;
+    roleBadge.className = user.role === 'member' ? 'role-badge member' : 'role-badge guest';
+
+    if (user.role === 'member' && user.status === 'approved') {
       statusText.textContent = '사용 승인됨';
       statusText.className = 'user-status-text approved';
-      dropdownStatus.textContent = '승인 상태: 승인 완료';
+      dropdownStatus.textContent = `등급: 회원 (승인 완료)`;
       document.getElementById('dropdown-btn-request').classList.add('hidden');
       document.getElementById('approval-notice-banner').classList.add('hidden');
     } else if (user.status === 'pending') {
-      statusText.textContent = '승인 대기중';
+      statusText.textContent = '승인 대기(보류)';
       statusText.className = 'user-status-text pending';
-      dropdownStatus.textContent = '승인 상태: 관리자 승인 대기';
+      dropdownStatus.textContent = `등급: ${roleName} (승인 대기/보류)`;
       document.getElementById('dropdown-btn-request').classList.remove('hidden');
 
       const banner = document.getElementById('approval-notice-banner');
       banner.classList.remove('hidden');
-      document.getElementById('notice-banner-title').textContent = '관리자 승인 대기 중입니다.';
+      document.getElementById('notice-banner-title').textContent = '관리자 승인 대기(보류) 중입니다.';
       document.getElementById('notice-banner-desc').textContent = `관리자(${ADMIN_EMAIL})의 확인 후 승인되면 오피스 프로그램을 이용하실 수 있습니다.`;
       document.getElementById('btn-banner-request').textContent = '승인 요청 재작성';
-    } else {
-      statusText.textContent = '승인 필요';
+    } else if (user.status === 'rejected') {
+      statusText.textContent = '이용 거절됨';
       statusText.className = 'user-status-text rejected';
-      dropdownStatus.textContent = '승인 상태: 미승인';
+      dropdownStatus.textContent = `등급: ${roleName} (승인 거절됨)`;
+      document.getElementById('dropdown-btn-request').classList.remove('hidden');
+
+      const banner = document.getElementById('approval-notice-banner');
+      banner.classList.remove('hidden');
+      document.getElementById('notice-banner-title').textContent = '사이트 이용이 거절된 상태입니다.';
+      document.getElementById('notice-banner-desc').textContent = '관리자에게 다시 승인 요청을 보내 검토를 요청할 수 있습니다.';
+      document.getElementById('btn-banner-request').textContent = '승인 요청 다시 보내기';
+    } else {
+      // Guest
+      statusText.textContent = '비회원 (승인 필요)';
+      statusText.className = 'user-status-text rejected';
+      dropdownStatus.textContent = '등급: 비회원 (승인 필요)';
       document.getElementById('dropdown-btn-request').classList.remove('hidden');
 
       const banner = document.getElementById('approval-notice-banner');
@@ -590,6 +670,11 @@ function setAuthenticatedUser(user) {
       document.getElementById('notice-banner-title').textContent = '사이트 사용 승인이 필요합니다.';
       document.getElementById('notice-banner-desc').textContent = '오피스 도구를 사용하시려면 관리자에게 승인 요청을 보내주세요.';
       document.getElementById('btn-banner-request').textContent = '승인 요청 작성하기';
+    }
+
+    const bannerSwitchAdminBtn = document.getElementById('btn-banner-switch-admin');
+    if (bannerSwitchAdminBtn) {
+      bannerSwitchAdminBtn.classList.remove('hidden');
     }
   }
 
@@ -627,7 +712,7 @@ function renderAppCards() {
   container.innerHTML = '';
 
   state.apps.forEach(app => {
-    const isLocked = !state.currentUser || (state.currentUser.role !== 'admin' && state.currentUser.status !== 'approved');
+    const isLocked = !canAccessTools(state.currentUser);
 
     const card = document.createElement('div');
     card.className = 'app-card';
@@ -651,7 +736,7 @@ function renderAppCards() {
             <polyline points="9 18 15 12 9 6"></polyline>
           </svg>
         </div>
-        ${isLocked ? `
+        ${!state.currentUser ? `
           <div class="card-lock-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -659,7 +744,16 @@ function renderAppCards() {
             </svg>
             <span>구글 로그인 필요</span>
           </div>
-        ` : ''}
+        ` : (isLocked ? `
+          <div class="card-lock-badge" style="background:#fee2e2; color:#b91c1c; border-color:#fca5a5;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>승인 필요 (${state.currentUser.role === 'guest' ? '비회원' : (state.currentUser.status === 'pending' ? '보류중' : '거절됨')})</span>
+          </div>
+        ` : '')}
       </div>
     `;
 
@@ -678,9 +772,17 @@ async function handleAppClick(app) {
     return;
   }
 
-  // If logged in but not yet approved -> open approval request form
-  if (state.currentUser.role !== 'admin' && state.currentUser.status !== 'approved') {
-    showToast('사이트 사용 승인이 필요한 계정입니다.', 'warning');
+  // If logged in but not authorized -> open approval request form
+  if (!canAccessTools(state.currentUser)) {
+    if (state.currentUser.role === 'guest') {
+      showToast('비회원 계정입니다. 사이트 사용 승인을 요청해주세요.', 'warning');
+    } else if (state.currentUser.status === 'pending') {
+      showToast('관리자 승인 대기(보류) 중입니다.', 'warning');
+    } else if (state.currentUser.status === 'rejected') {
+      showToast('이용이 거절된 상태입니다. 승인 요청을 다시 제출하세요.', 'error');
+    } else {
+      showToast('사이트 사용 승인이 필요한 계정입니다.', 'warning');
+    }
     showApprovalModal();
     return;
   }
@@ -794,16 +896,44 @@ async function loadAdminDashboard() {
 
     usersData.users.forEach(user => {
       const tr = document.createElement('tr');
-      const isSelf = user.email.toLowerCase() === state.currentUser?.email?.toLowerCase();
-      const isAdminAccount = user.role === 'admin' || user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      const isSuperAdmin = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
+      // 1. Grade (Role) Column: admin / member / guest
+      let roleHtml = '';
+      if (isSuperAdmin) {
+        roleHtml = `<span class="grade-badge admin">👑 최고 관리자</span>`;
+      } else {
+        roleHtml = `
+          <select class="grade-select" data-email="${user.email}" title="회원 등급 지정">
+            <option value="member" ${user.role === 'member' ? 'selected' : ''}>👤 회원</option>
+            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>👑 관리자</option>
+            <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>⚪ 비회원</option>
+          </select>
+        `;
+      }
+
+      // 2. Status Badge Column: approved / rejected / pending
       let statusBadge = '';
       if (user.status === 'approved') {
-        statusBadge = '<span class="status-badge approved">승인 완료</span>';
-      } else if (user.status === 'pending') {
-        statusBadge = '<span class="status-badge pending">승인 대기중</span>';
+        statusBadge = '<span class="status-tag approved">승인</span>';
+      } else if (user.status === 'rejected') {
+        statusBadge = '<span class="status-tag rejected">거절</span>';
       } else {
-        statusBadge = '<span class="status-badge rejected">거절 / 회수됨</span>';
+        statusBadge = '<span class="status-tag pending">보류</span>';
+      }
+
+      // 3. Status Action Buttons: 승인 / 거절 / 보류
+      let actionButtonsHtml = '';
+      if (isSuperAdmin) {
+        actionButtonsHtml = `<span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">변경 불가</span>`;
+      } else {
+        actionButtonsHtml = `
+          <div class="table-actions" style="display: flex; gap: 4px;">
+            <button class="btn-table-action btn-approve ${user.status === 'approved' ? 'active' : ''}" data-email="${user.email}" title="승인">승인</button>
+            <button class="btn-table-action btn-reject ${user.status === 'rejected' ? 'active' : ''}" data-email="${user.email}" title="거절">거절</button>
+            <button class="btn-table-action btn-hold ${user.status === 'pending' ? 'active' : ''}" data-email="${user.email}" title="보류">보류</button>
+          </div>
+        `;
       }
 
       tr.innerHTML = `
@@ -813,39 +943,45 @@ async function loadAdminDashboard() {
               ${user.picture ? `<img src="${user.picture}" style="width:100%; height:100%; object-fit:cover;" />` : (user.name[0] || 'U')}
             </div>
             <div>
-              <div style="font-weight: 700; font-size: 0.9rem;">${user.name} ${isAdminAccount ? '<span style="font-size:0.65rem; background:#4f46e5; color:#fff; padding:2px 6px; border-radius:99px; margin-left:4px;">ADMIN</span>' : ''}</div>
+              <div style="font-weight: 700; font-size: 0.9rem;">${user.name} ${isSuperAdmin ? '<span style="font-size:0.65rem; background:#4f46e5; color:#fff; padding:2px 6px; border-radius:99px; margin-left:4px;">SUPER ADMIN</span>' : ''}</div>
               <div style="font-size: 0.78rem; color: var(--text-muted);">${user.email}</div>
             </div>
           </div>
         </td>
         <td style="font-size: 0.85rem;">${user.department || '-'}</td>
-        <td style="font-size: 0.82rem; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${user.reason || ''}">
+        <td style="font-size: 0.82rem; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${user.reason || ''}">
           ${user.reason || '-'}
         </td>
         <td style="font-size: 0.8rem; color: var(--text-muted);">${user.requested_at || user.created_at || '-'}</td>
+        <td>${roleHtml}</td>
         <td>${statusBadge}</td>
         <td><strong>${(user.total_usage || 0).toLocaleString()} 회</strong></td>
-        <td>
-          <div class="table-actions">
-            ${isAdminAccount ? `
-              <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: 600;">최고관리자</span>
-            ` : `
-              ${user.status !== 'approved' ? `
-                <button class="btn-action-sm btn-approve" data-email="${user.email}" title="접근 승인">승인</button>
-              ` : `
-                <button class="btn-action-sm btn-reject" data-email="${user.email}" title="권한 회수">회수</button>
-              `}
-            `}
-          </div>
-        </td>
+        <td>${actionButtonsHtml}</td>
       `;
 
+      // Event listener for Grade Change
+      const gradeSelect = tr.querySelector('.grade-select');
+      if (gradeSelect) {
+        gradeSelect.addEventListener('change', async (e) => {
+          const newRole = e.target.value;
+          const roleLabels = { admin: '관리자', member: '회원', guest: '비회원' };
+          try {
+            await apiCall('/api/admin/set_role', 'POST', { email: user.email, role: newRole });
+            showToast(`${user.name}님의 등급이 '${roleLabels[newRole]}'(으)로 변경되었습니다.`, 'success');
+            loadAdminDashboard();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      }
+
+      // Event listeners for Status Buttons: Approve / Reject / Hold
       const btnApprove = tr.querySelector('.btn-approve');
       if (btnApprove) {
         btnApprove.addEventListener('click', async () => {
           try {
             await apiCall('/api/admin/approve', 'POST', { email: user.email });
-            showToast(`${user.email} 계정이 승인되었습니다.`, 'success');
+            showToast(`${user.name} 계정이 승인되었습니다. (등급: 회원)`, 'success');
             loadAdminDashboard();
           } catch (e) {
             showToast(e.message, 'error');
@@ -856,10 +992,23 @@ async function loadAdminDashboard() {
       const btnReject = tr.querySelector('.btn-reject');
       if (btnReject) {
         btnReject.addEventListener('click', async () => {
-          if (!confirm(`${user.name}(${user.email}) 계정의 사이트 이용 권한을 회수하시겠습니까?`)) return;
+          if (!confirm(`${user.name}(${user.email}) 계정을 '거절' 상태로 변경하시겠습니까?`)) return;
           try {
             await apiCall('/api/admin/reject', 'POST', { email: user.email });
-            showToast(`${user.email} 계정 권한이 회수되었습니다.`, 'info');
+            showToast(`${user.name} 계정이 거절 처리되었습니다.`, 'info');
+            loadAdminDashboard();
+          } catch (e) {
+            showToast(e.message, 'error');
+          }
+        });
+      }
+
+      const btnHold = tr.querySelector('.btn-hold');
+      if (btnHold) {
+        btnHold.addEventListener('click', async () => {
+          try {
+            await apiCall('/api/admin/hold', 'POST', { email: user.email });
+            showToast(`${user.name} 계정이 '보류' 상태로 변경되었습니다.`, 'warning');
             loadAdminDashboard();
           } catch (e) {
             showToast(e.message, 'error');
@@ -959,22 +1108,39 @@ function initEventListeners() {
     openLoginModal();
   });
 
-  // Modal Quick Login Buttons
+  // Admin-Only Quick Test & Account Switcher Buttons (Inside Admin Dashboard)
   const btnQuickAdmin = document.getElementById('btn-quick-admin');
   if (btnQuickAdmin) {
     btnQuickAdmin.addEventListener('click', () => {
-      closeModal('modal-login-choice');
-      loginUserDirect(ADMIN_EMAIL, '관리자 (김보성)');
-      showToast('관리자 계정으로 로그인되었습니다.', 'success');
+      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
+      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 전환되었습니다.', 'success');
+      switchView('admin');
     });
   }
 
   const btnQuickUser = document.getElementById('btn-quick-user');
   if (btnQuickUser) {
     btnQuickUser.addEventListener('click', () => {
-      closeModal('modal-login-choice');
-      loginUserDirect('test.user@gmail.com', '테스트 사용자');
-      showToast('일반 테스트 계정으로 로그인되었습니다. (승인 대기 상태)', 'info');
+      loginUserDirect('test.user@bsoffice.local', '테스트 사용자');
+      showToast('일반 계정으로 전환되었습니다. (승인 요청 및 비회원 제한 테스트 가능)', 'info');
+    });
+  }
+
+  // Switch back to Admin from Profile Dropdown (when simulating non-admin)
+  const btnSwitchAdmin = document.getElementById('dropdown-btn-switch-admin');
+  if (btnSwitchAdmin) {
+    btnSwitchAdmin.addEventListener('click', () => {
+      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
+      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 복귀했습니다.', 'success');
+    });
+  }
+
+  // Switch back to Admin from Approval Notice Banner
+  const btnBannerSwitchAdmin = document.getElementById('btn-banner-switch-admin');
+  if (btnBannerSwitchAdmin) {
+    btnBannerSwitchAdmin.addEventListener('click', () => {
+      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
+      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 복귀했습니다.', 'success');
     });
   }
 

@@ -939,12 +939,113 @@ body {
   border: 1px solid #fca5a5;
 }
 .btn-table-action.btn-reject:hover { background: #dc2626; color: #fff; }
+.btn-table-action.btn-hold {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  margin-right: 6px;
+}
+.btn-table-action.btn-hold:hover { background: #f59e0b; color: #fff; }
 .btn-table-action.btn-details {
   background: var(--primary-light);
   color: var(--primary);
   border: 1px solid #c7d2fe;
 }
 .btn-table-action.btn-details:hover { background: var(--primary); color: #fff; }
+
+.grade-select {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: #fff;
+  color: var(--text-main);
+  cursor: pointer;
+  outline: none;
+  transition: var(--transition);
+}
+.grade-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+
+.role-badge.member {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+}
+.role-badge.guest {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+/* Admin Simulation & Test Switcher Console Bar */
+.admin-test-bar {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.test-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.test-bar-icon {
+  font-size: 1.25rem;
+}
+.test-bar-info strong {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+.test-bar-info p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+.test-bar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-test-action {
+  padding: 7px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-test-admin {
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+}
+.btn-test-admin:hover {
+  background: #4338ca;
+  color: #fff;
+}
+.btn-test-user {
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.btn-test-user:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
 
 /* ==========================================================================
    VIEW 3: Embedded Tool Viewer

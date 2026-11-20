@@ -240,7 +240,7 @@
         badge = document.createElement('div');
         badge.id = 'bsoffice-cdp-pill';
         badge.className = 'bsoffice-cdp-pill';
-        badge.title = 'BSoffice 웹 앱 실행 상태';
+        badge.title = "BOS'S Office 웹 앱 실행 상태";
 
         // Find best mounting container
         const targetContainer =
