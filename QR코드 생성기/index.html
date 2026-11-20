@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSoffice | QR코드 생성기</title>
+  <meta name="description" content="URL 및 PDF 파일을 입력하여 즉시 고화질 JPG QR코드를 생성하고 다운로드할 수 있는 모던 QR 제너레이터">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="../bsoffice-common.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Ambient background lighting effects -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+  <div class="background-grid"></div>
+
+  <!-- Header Navigation (Unified BSoffice Brand) -->
+  <header class="app-header">
+    <div class="header-left">
+      <a href="../index.html" class="bsoffice-unified-brand-link" title="BSoffice 메인으로 이동">
+        <div class="bsoffice-unified-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+            <polyline points="22,6 12,13 2,6"></polyline>
+          </svg>
+        </div>
+        <div class="bsoffice-unified-title-wrap">
+          <span class="bsoffice-unified-brand-name"><span class="accent-text">BS</span> office</span>
+          <span class="bsoffice-unified-tag">PORTAL</span>
+        </div>
+      </a>
+      <div class="bsoffice-current-app-badge">QR코드 생성기</div>
+    </div>
+
+    <div class="header-right">
+      <a href="../index.html" class="bsoffice-btn-home" title="BSoffice 메인 도구 홈으로 이동">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        </svg>
+        <span>도구 홈</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Viewport Area -->
+  <main class="main-viewport" id="main-viewport">
+    
+    <!-- Center Stage: Generated QR Code (Shown after clicking 확인) -->
+    <section class="qr-stage state-hidden" id="qr-stage" aria-label="생성된 QR 코드 영역">
+      <div class="qr-card-container">
+        <!-- Ambient halo behind card -->
+        <div class="qr-card-glow"></div>
+        
+        <div class="qr-card">
+          <div class="qr-card-header">
+            <span class="qr-type-badge" id="qr-type-badge">
+              <span class="badge-icon" id="badge-icon">🔗</span>
+              <span class="badge-label" id="badge-label">웹사이트 링크</span>
+            </span>
+            <span class="qr-status-indicator">Ready to Download</span>
+          </div>
+
+          <!-- Interactive QR Code Wrapper: Click to download JPG -->
+          <div class="qr-interactive-wrapper" id="qr-code-wrapper" title="클릭하면 JPG로 바로 다운로드됩니다!">
+            <div class="qr-render-box" id="qrcode-box">
+              <!-- QR Canvas will be rendered here by qrcode.js -->
+            </div>
+            
+            <!-- Floating Hover / Click Hint Overlay -->
+            <div class="qr-download-overlay" id="qr-download-overlay">
+              <div class="overlay-content">
+                <div class="overlay-icon-wrap">
+                  <svg class="overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </div>
+                <span class="overlay-title">클릭하여 JPG 다운로드</span>
+                <span class="overlay-sub">고화질 1024px 원본 저장</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Target Info Bar -->
+          <div class="qr-target-info" id="qr-target-info">
+            <span class="target-icon">🌐</span>
+            <span class="target-text" id="qr-target-text">https://example.com</span>
+          </div>
+
+          <!-- Action Buttons Bar -->
+          <div class="qr-actions-row">
+            <button type="button" class="action-btn btn-primary" id="btn-download-jpg" title="JPG 파일로 저장">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>JPG 다운로드</span>
+            </button>
+
+            <button type="button" class="action-btn btn-secondary" id="btn-copy-url" title="입력값 클립보드 복사">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              <span id="btn-copy-label">복사</span>
+            </button>
+            
+            <button type="button" class="action-btn btn-ghost" id="btn-reset-view" title="새로 만들기 / 입력창 중앙 복귀">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                <path d="M8 16H3v5"/>
+              </svg>
+              <span>새로 만들기</span>
+            </button>
+          </div>
+
+          <p class="qr-click-notice">💡 QR코드를 직접 클릭해도 즉시 <strong>JPG 파일</strong>로 다운로드됩니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Center Input Wrapper (Initially Center -> Moves down to Bottom on Confirm) -->
+    <div class="input-wrapper state-centered" id="input-wrapper">
+      <div class="input-card" id="input-card">
+        
+        <!-- Header / Mode Tabs -->
+        <div class="input-card-header">
+          <div class="tab-pill-group" role="tablist">
+            <button type="button" class="tab-pill active" id="tab-url" role="tab" aria-selected="true">
+              <span class="tab-icon">🔗</span>
+              <span>URL 링크</span>
+            </button>
+            <button type="button" class="tab-pill" id="tab-pdf" role="tab" aria-selected="false">
+              <span class="tab-icon">📄</span>
+              <span>PDF 파일</span>
+            </button>
+          </div>
+          
+          <div class="dock-indicator" id="dock-indicator" title="현재 활성화된 입력창">
+            <span class="indicator-dot"></span>
+            <span class="indicator-text">입력 대기 중</span>
+          </div>
+        </div>
+
+        <!-- Mode 1: URL Input Panel -->
+        <div class="tab-panel active" id="panel-url">
+          <div class="input-field-group">
+            <div class="input-icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+            </div>
+            <input 
+              type="text" 
+              id="url-input" 
+              class="text-input" 
+              placeholder="QR코드로 만들 URL을 입력하세요 (예: https://naver.com)" 
+              autocomplete="off" 
+              spellcheck="false"
+            />
+            <button type="button" class="btn-clear" id="btn-clear-url" title="입력 지우기" style="display:none;">✕</button>
+            <button type="button" class="btn-paste" id="btn-paste-url" title="클립보드에서 붙여넣기">붙여넣기</button>
+          </div>
+          
+          <!-- Quick Presets -->
+          <div class="quick-presets" id="quick-presets">
+            <span class="preset-label">빠른 예시:</span>
+            <button type="button" class="preset-chip" data-url="https://www.naver.com">Naver</button>
+            <button type="button" class="preset-chip" data-url="https://www.google.com">Google</button>
+            <button type="button" class="preset-chip" data-url="https://www.youtube.com">YouTube</button>
+            <button type="button" class="preset-chip" data-url="https://github.com">GitHub</button>
+          </div>
+        </div>
+
+        <!-- Mode 2: PDF File Input Panel -->
+        <div class="tab-panel" id="panel-pdf" style="display: none;">
+          <div class="pdf-drop-zone" id="pdf-drop-zone">
+            <input type="file" id="pdf-file-input" class="file-input-hidden" accept=".pdf,application/pdf" />
+            
+            <div class="drop-content-initial" id="drop-content-initial">
+              <div class="drop-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <line x1="9" y1="15" x2="12" y2="12"/>
+                  <line x1="15" y1="15" x2="12" y2="12"/>
+                </svg>
+              </div>
+              <div class="drop-texts">
+                <p class="drop-primary"><strong>PDF 파일을 여기에 드래그</strong>하거나 클릭하여 선택하세요</p>
+                <p class="drop-secondary">문서 내용이나 파일 링크를 QR코드로 생성합니다 (.pdf)</p>
+              </div>
+            </div>
+
+            <div class="drop-content-selected" id="drop-content-selected" style="display: none;">
+              <div class="pdf-file-chip">
+                <span class="pdf-badge">PDF</span>
+                <div class="pdf-meta">
+                  <span class="pdf-filename" id="pdf-file-name">document.pdf</span>
+                  <span class="pdf-filesize" id="pdf-file-size">142 KB</span>
+                </div>
+                <button type="button" class="pdf-remove-btn" id="btn-remove-pdf" title="파일 취소">✕</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pdf-alt-link">
+            <span class="alt-label">또는 온라인 PDF URL 직접 입력:</span>
+            <input type="text" id="pdf-url-alt" class="alt-text-input" placeholder="https://example.com/sample.pdf" />
+          </div>
+        </div>
+
+        <!-- Footer / Confirm Button -->
+        <div class="input-card-footer">
+          <div class="footer-hint" id="footer-hint">
+            <span class="hint-bullet">●</span>
+            <span id="hint-text">URL을 입력하고 확인 버튼을 눌러주세요</span>
+          </div>
+
+          <button type="button" class="btn-confirm" id="btn-confirm">
+            <span class="btn-confirm-text">확인</span>
+            <svg class="btn-confirm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Notification Toast -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <!-- BSoffice Client Bridge (Static GitHub Pages & Local Engine Support) -->
+  <script src="../bsoffice-bridge.js"></script>
+  <!-- QR Code Library (Local Bundle) -->
+  <script src="./qrcode.min.js"></script>
+  <!-- Application Logic -->
+  <script src="./app.js"></script>
+</body>
+</html>

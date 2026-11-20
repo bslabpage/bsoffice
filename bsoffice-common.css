@@ -1,0 +1,224 @@
+/* ==========================================================================
+   BSoffice Unified Global Design System & Common Brand Header
+   Color Palette & Typography Unified to "PDF Studio / PDF 변환기" Standard
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+
+:root {
+  /* PDF 변환기 기준 컬러 팔레트 */
+  --bsoffice-primary: #4f46e5;
+  --bsoffice-primary-hover: #4338ca;
+  --bsoffice-primary-light: #eef2ff;
+  --bsoffice-primary-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --bsoffice-accent-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  --bsoffice-glow: 0 4px 16px rgba(79, 70, 229, 0.3);
+
+  --bsoffice-bg: #f8fafc;
+  --bsoffice-bg-subtle: #f1f5f9;
+  --bsoffice-bg-card: rgba(255, 255, 255, 0.96);
+
+  --bsoffice-border: #e2e8f0;
+  --bsoffice-border-focus: #818cf8;
+
+  --bsoffice-text-main: #0f172a;
+  --bsoffice-text-muted: #64748b;
+  --bsoffice-text-dim: #94a3b8;
+
+  --bsoffice-radius-sm: 8px;
+  --bsoffice-radius-md: 12px;
+  --bsoffice-radius-lg: 16px;
+  --bsoffice-radius-full: 9999px;
+
+  --bsoffice-font: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --bsoffice-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+}
+
+/* ==========================================================================
+   통일된 BSoffice 브랜드 상단 바 컴포넌트
+   ========================================================================== */
+.bsoffice-unified-header {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--bsoffice-border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  font-family: var(--bsoffice-font);
+  position: relative;
+  z-index: 999;
+}
+
+.bsoffice-unified-brand-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.bsoffice-unified-brand-link:hover {
+  transform: translateY(-1px);
+}
+
+.bsoffice-unified-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--bsoffice-radius-md);
+  background: var(--bsoffice-primary-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: var(--bsoffice-glow);
+  flex-shrink: 0;
+}
+
+.bsoffice-unified-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.bsoffice-unified-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bsoffice-unified-brand-name {
+  font-family: 'Plus Jakarta Sans', var(--bsoffice-font);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--bsoffice-text-main);
+  line-height: 1;
+}
+
+.bsoffice-unified-brand-name .accent-text {
+  color: #4f46e5;
+  background: var(--bsoffice-primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bsoffice-unified-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+  padding: 2px 7px;
+  border-radius: var(--bsoffice-radius-full);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.bsoffice-current-app-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f1f5f9;
+  border-radius: var(--bsoffice-radius-full);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.bsoffice-current-app-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4f46e5;
+}
+
+.bsoffice-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bsoffice-btn-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: #f8fafc;
+  border: 1px solid var(--bsoffice-border);
+  border-radius: var(--bsoffice-radius-sm);
+  color: var(--bsoffice-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.bsoffice-btn-home:hover {
+  background: #eef2ff;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   CDP 9000 & Python Backend Engine Status Pill
+   ========================================================================== */
+.bsoffice-cdp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--bsoffice-radius-full);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transition: all 0.25s ease;
+  user-select: none;
+  cursor: default;
+}
+
+.bsoffice-cdp-pill.cdp-active {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1);
+}
+
+.bsoffice-cdp-pill.cdp-standby {
+  background: rgba(99, 102, 241, 0.08);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.cdp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.cdp-dot.pulse {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: cdpPulse 2s infinite ease-in-out;
+}
+
+.cdp-dot.standby {
+  background: #6366f1;
+}
+
+@keyframes cdpPulse {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+

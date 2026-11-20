@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSoffice | 파일명 일괄 변경기</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../bsoffice-common.css">
+  <link rel="stylesheet" href="./style.css">
+  <!-- JSZip CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+  <!-- Header (Unified BSoffice Brand) -->
+  <header class="site-header">
+    <div class="header-inner container">
+      <!-- Logo -->
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a href="../index.html" class="bsoffice-unified-brand-link" title="BSoffice 메인으로 이동">
+          <div class="bsoffice-unified-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+              <polyline points="22,6 12,13 2,6"></polyline>
+            </svg>
+          </div>
+          <div class="bsoffice-unified-title-wrap">
+            <span class="bsoffice-unified-brand-name"><span class="accent-text">BS</span> office</span>
+            <span class="bsoffice-unified-tag">PORTAL</span>
+          </div>
+        </a>
+        <div class="bsoffice-current-app-badge">파일명 일괄변경기</div>
+      </div>
+
+      <!-- Right Actions: Main Home & Badge -->
+      <div class="header-right">
+        <a href="../index.html" class="bsoffice-btn-home" title="BSoffice 메인 도구 홈으로 이동">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          </svg>
+          <span>도구 홈</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content container">
+    <!-- Intro Title -->
+    <div class="page-title-section">
+      <div class="title-wrap">
+        <h1 class="main-title">파일명 일괄 변경기</h1>
+        <span class="secure-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          100% 로컬 브라우저 처리 (서버 전송 없음)
+        </span>
+      </div>
+      <p class="subtitle">다양한 파일들의 이름을 빠르고 편리하게 일괄 규칙에 맞춰 변경하고, 압축(ZIP) 파일로 한 번에 다운로드하세요.</p>
+    </div>
+
+    <!-- 1. Upload Section -->
+    <section class="card upload-card" id="uploadSection">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" multiple style="display: none;">
+        <div class="dropzone-content">
+          <div class="upload-icon-circle">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <h3 class="dropzone-title">파일을 여기로 드래그 & 드롭하세요</h3>
+          <p class="dropzone-desc">또는 버튼을 클릭하여 다중 파일을 선택할 수 있습니다 (이미지, 문서 등 모든 형식 지원)</p>
+          <button type="button" class="btn btn-secondary select-files-btn" id="selectFilesBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            파일 선택하기
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Renaming Rules Section -->
+    <section class="card rules-card">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span class="step-num">1</span> 이름 변경 규칙 설정
+        </h2>
+        <button type="button" class="btn-text-link" id="resetRulesBtn" title="기본 규칙으로 초기화">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+          </svg>
+          규칙 초기화
+        </button>
+      </div>
+
+      <div class="rules-grid">
+        <!-- Rule 1: 접두사 (Prefix) -->
+        <div class="form-group rule-box">
+          <label for="prefixInput" class="form-label">
+            <span class="label-badge prefix-tag">접두사 (Prefix)</span>
+            <span class="label-desc">새 파일명 맨 앞에 추가</span>
+          </label>
+          <input type="text" id="prefixInput" class="form-input" placeholder="예: [bslab]_" autocomplete="off">
+        </div>
+
+        <!-- Rule 2: 파일명 본문 (Base Name) -->
+        <div class="form-group rule-box">
+          <label class="form-label">
+            <span class="label-badge base-tag">새 파일명 본문</span>
+            <span class="label-desc">기존 이름 또는 새 이름 지정</span>
+          </label>
+          <div class="radio-pill-group">
+            <label class="radio-pill">
+              <input type="radio" name="baseNameMode" value="keep" id="modeKeep" checked>
+              <span>기존 파일명 유지</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="baseNameMode" value="custom" id="modeCustom">
+              <span>새 이름으로 일괄 변경</span>
+            </label>
+          </div>
+          <input type="text" id="customNameInput" class="form-input" placeholder="새 파일명 본문 입력 (예: 문서, 사진)" autocomplete="off" disabled>
+        </div>
+
+        <!-- Rule 3: 접미사 (Suffix) -->
+        <div class="form-group rule-box">
+          <label for="suffixInput" class="form-label">
+            <span class="label-badge suffix-tag">접미사 (Suffix)</span>
+            <span class="label-desc">확장자 바로 앞에 추가</span>
+          </label>
+          <input type="text" id="suffixInput" class="form-input" placeholder="예: _v1.0, _완료" autocomplete="off">
+        </div>
+
+        <!-- Rule 4: 일련번호 (Numbering) -->
+        <div class="form-group rule-box numbering-box">
+          <div class="numbering-header">
+            <label class="form-label mb-0" for="useNumbering">
+              <span class="label-badge num-tag">일련번호 (Numbering)</span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="useNumbering" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div id="numberingOptions" class="numbering-controls">
+            <div class="sub-form-row">
+              <div class="sub-field">
+                <label for="startNumber" class="sub-label">시작 번호</label>
+                <input type="number" id="startNumber" class="form-input form-input-sm" value="1" min="0" step="1">
+              </div>
+              <div class="sub-field">
+                <label for="numberDigits" class="sub-label">자릿수 (Padding)</label>
+                <select id="numberDigits" class="form-select form-input-sm">
+                  <option value="1">1자리 (1, 2, 3...)</option>
+                  <option value="2" selected>2자리 (01, 02, 03...)</option>
+                  <option value="3">3자리 (001, 002...)</option>
+                  <option value="4">4자리 (0001, 0002...)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="sub-form-row mt-2">
+              <div class="sub-field">
+                <label for="numPosition" class="sub-label">번호 위치</label>
+                <select id="numPosition" class="form-select form-input-sm">
+                  <option value="suffix_before">본문 뒤 (본문_01_접미사)</option>
+                  <option value="suffix_after">접미사 뒤 (본문_접미사_01)</option>
+                  <option value="prefix_after">접두사 바로 뒤 (접두사_01_본문)</option>
+                </select>
+              </div>
+              <div class="sub-field">
+                <label for="numSeparator" class="sub-label">구분 기호</label>
+                <select id="numSeparator" class="form-select form-input-sm">
+                  <option value="_">언더스코어 ( _ )</option>
+                  <option value="-">하이픈 ( - )</option>
+                  <option value=" ">공백 (   )</option>
+                  <option value="">없음</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Rule Structure Preview Banner -->
+      <div class="rule-structure-preview">
+        <span class="structure-label">조합 구조 미리보기:</span>
+        <div class="tags-container" id="structureFormula">
+          <!-- Dynamically populated or static badges -->
+          <span class="tag tag-prefix" id="formulaPrefix">[접두사]</span>
+          <span class="tag tag-base" id="formulaBase">[본문]</span>
+          <span class="tag tag-num" id="formulaNum">[일련번호]</span>
+          <span class="tag tag-suffix" id="formulaSuffix">[접미사]</span>
+          <span class="tag tag-ext">.[확장자]</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Preview & Action Section -->
+    <section class="card preview-card">
+      <div class="preview-header">
+        <div class="preview-title-wrap">
+          <h2 class="section-title">
+            <span class="step-num">2</span> 변경 실시간 미리보기
+          </h2>
+          <span class="file-count-badge" id="fileCountBadge">0개 파일</span>
+        </div>
+
+        <div class="preview-actions">
+          <button type="button" class="btn btn-outline-danger btn-sm" id="clearAllBtn" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            전체 비우기
+          </button>
+        </div>
+      </div>
+
+      <!-- File Table Container (Scrollable) -->
+      <div class="table-container" id="tableContainer">
+        <!-- Empty State (파일 없을 때) -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">📁</div>
+          <p class="empty-title">업로드된 파일이 없습니다</p>
+          <p class="empty-desc">위의 업로드 영역으로 파일들을 끌어다 놓거나 [파일 선택하기]를 눌러보세요.</p>
+        </div>
+
+        <!-- Table View (파일 있을 때 활성화) -->
+        <table class="preview-table" id="previewTable" style="display: none;">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th class="col-original">원본 파일명</th>
+              <th class="col-arrow"></th>
+              <th class="col-new">변경될 파일명</th>
+              <th class="col-size">크기</th>
+              <th class="col-action">삭제</th>
+            </tr>
+          </thead>
+          <tbody id="previewTbody">
+            <!-- Dynamically populated rows -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Download & Progress Area -->
+      <div class="action-footer">
+        <div class="download-summary">
+          <span class="summary-text" id="summaryText">선택된 파일: 0개 (0 KB)</span>
+        </div>
+        <div class="action-btn-wrap">
+          <button type="button" class="btn btn-primary btn-lg" id="downloadZipBtn" disabled>
+            <svg class="download-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span id="downloadBtnText">일괄 변경 및 다운로드 (ZIP)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="progress-bar-container" id="progressContainer" style="display: none;">
+        <div class="progress-info">
+          <span class="progress-status" id="progressStatus">압축 진행 중...</span>
+          <span class="progress-percent" id="progressPercent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p class="footer-copy">© 2026 <a href="https://bslabpage.kr" target="_blank" rel="noopener noreferrer">bslab</a>. 모든 파일 처리는 사용자의 기기 내부(브라우저 메모리)에서만 100% 안전하게 수행됩니다.</p>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- BSoffice Client Bridge (CDP 9000 & Python Backend Engine) -->
+  <script src="../bsoffice-bridge.js"></script>
+  <!-- Script -->
+  <script src="./app.js"></script>
+</body>
+</html>
+

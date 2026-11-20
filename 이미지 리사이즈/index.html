@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSoffice | 이미지 리사이즈</title>
+  <meta name="description" content="간편하고 빠른 고화질 사진 비율 조절 및 일괄 리사이즈 웹 앱. 패딩과 크롭 모드, 다중 변환, ZIP 일괄 다운로드 지원.">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons for clean UI icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Local JSZip with fallback to CDN -->
+  <script src="./jszip.min.js"></script>
+  <script>
+    if (typeof JSZip === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
+    }
+  </script>
+  
+  <link rel="stylesheet" href="../bsoffice-common.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Background Glow Accents -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <!-- Header (Unified BSoffice Brand) -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-left">
+        <a href="../index.html" class="bsoffice-unified-brand-link" title="BSoffice 메인으로 이동">
+          <div class="bsoffice-unified-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+              <polyline points="22,6 12,13 2,6"></polyline>
+            </svg>
+          </div>
+          <div class="bsoffice-unified-title-wrap">
+            <span class="bsoffice-unified-brand-name"><span class="accent-text">BS</span> office</span>
+            <span class="bsoffice-unified-tag">PORTAL</span>
+          </div>
+        </a>
+        <div class="bsoffice-current-app-badge">이미지 리사이즈</div>
+      </div>
+      
+      <div class="brand-right">
+        <a href="../index.html" class="bsoffice-btn-home" title="BSoffice 메인 도구 홈으로 이동">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          </svg>
+          <span>도구 홈</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-wrapper">
+    <!-- Intro Hero Banner -->
+    <section class="hero-section">
+      <h2 class="hero-title">고화질 이미지 종횡비 완벽 리사이저</h2>
+      <p class="hero-subtitle">원하는 비율을 선택하고 여백(Padding) 또는 자르기(Crop)로 여러 장의 사진을 한 번에 맞춤 변환하세요.</p>
+    </section>
+
+    <!-- Controls Panel (Aspect Ratio & Resize Mode) -->
+    <section class="settings-card" id="settings-card">
+      <div class="settings-header">
+        <div class="settings-title">
+          <i class="fa-solid fa-sliders"></i>
+          <span>리사이즈 옵션 설정</span>
+        </div>
+        <div class="settings-hint">설정을 변경하면 대기/완료된 모든 이미지에 적용할 수 있습니다.</div>
+      </div>
+
+      <div class="settings-grid">
+        <!-- 1. Canvas Ratio Selection -->
+        <div class="control-group">
+          <label class="control-label">
+            <span class="label-badge">1</span>
+            캔버스 비율 선택
+          </label>
+          <div class="ratio-options" id="ratio-options">
+            <button type="button" class="ratio-btn active" data-ratio="1:1" data-w="1" data-h="1">
+              <span class="ratio-val">1:1</span>
+              <span class="ratio-desc">정사각형 (피드)</span>
+            </button>
+            <button type="button" class="ratio-btn" data-ratio="3:4" data-w="3" data-h="4">
+              <span class="ratio-val">3:4</span>
+              <span class="ratio-desc">세로 인물</span>
+            </button>
+            <button type="button" class="ratio-btn" data-ratio="4:3" data-w="4" data-h="3">
+              <span class="ratio-val">4:3</span>
+              <span class="ratio-desc">표준 가로</span>
+            </button>
+            <button type="button" class="ratio-btn" data-ratio="9:16" data-w="9" data-h="16">
+              <span class="ratio-val">9:16</span>
+              <span class="ratio-desc">쇼츠/릴스/스토리</span>
+            </button>
+            <button type="button" class="ratio-btn" data-ratio="16:9" data-w="16" data-h="9">
+              <span class="ratio-val">16:9</span>
+              <span class="ratio-desc">유튜브/와이드</span>
+            </button>
+            <button type="button" class="ratio-btn" data-ratio="custom">
+              <span class="ratio-val"><i class="fa-solid fa-pencil"></i> 커스텀</span>
+              <span class="ratio-desc">직접 입력</span>
+            </button>
+          </div>
+
+          <!-- Custom Ratio Input Drawer -->
+          <div class="custom-ratio-box" id="custom-ratio-box" style="display: none;">
+            <div class="custom-input-wrap">
+              <div class="input-field">
+                <label for="custom-w">가로 (Width)</label>
+                <input type="number" id="custom-w" min="1" max="10000" value="1080" placeholder="1080">
+              </div>
+              <span class="ratio-divider">:</span>
+              <div class="input-field">
+                <label for="custom-h">세로 (Height)</label>
+                <input type="number" id="custom-h" min="1" max="10000" value="1350" placeholder="1350">
+              </div>
+            </div>
+            <span class="custom-tip">💡 비율(예: 4:5) 또는 직접 픽셀 크기(예: 1080x1350)를 입력할 수 있습니다.</span>
+          </div>
+        </div>
+
+        <!-- 2. Resize Mode: Padding vs Crop -->
+        <div class="control-group">
+          <label class="control-label">
+            <span class="label-badge">2</span>
+            변환 방식 선택
+          </label>
+          <div class="mode-options" id="mode-options">
+            <label class="mode-card active" id="mode-padding-card">
+              <input type="radio" name="resize-mode" value="padding" checked>
+              <div class="mode-icon-box">
+                <i class="fa-solid fa-expand"></i>
+              </div>
+              <div class="mode-info">
+                <span class="mode-title">Padding (여백 채우기)</span>
+                <span class="mode-desc">사진 잘림 없이 전체 유지, 남는 공간을 여백으로 채움</span>
+              </div>
+              <div class="mode-check"><i class="fa-solid fa-circle-check"></i></div>
+            </label>
+
+            <label class="mode-card" id="mode-crop-card">
+              <input type="radio" name="resize-mode" value="crop">
+              <div class="mode-icon-box">
+                <i class="fa-solid fa-crop-simple"></i>
+              </div>
+              <div class="mode-info">
+                <span class="mode-title">Crop (중앙 자르기)</span>
+                <span class="mode-desc">화면을 꽉 채우도록 비율에 맞춰 사진 가장자리를 잘라냄</span>
+              </div>
+              <div class="mode-check"><i class="fa-solid fa-circle-check"></i></div>
+            </label>
+          </div>
+
+          <!-- Padding Color Picker Drawer -->
+          <div class="padding-color-panel" id="padding-color-panel">
+            <div class="color-picker-header">
+              <span class="color-picker-label"><i class="fa-solid fa-palette"></i> 여백 색상 (기본: 흰색)</span>
+              <div class="current-color-badge" id="current-color-badge">
+                <span class="color-preview-chip" id="color-preview-chip" style="background-color: #FFFFFF;"></span>
+                <span class="color-hex-text" id="color-hex-text">#FFFFFF</span>
+              </div>
+            </div>
+            <div class="color-presets-row">
+              <button type="button" class="color-preset-btn active" data-color="#FFFFFF" title="화이트 (기본)">
+                <span class="preset-dot" style="background: #FFFFFF; border: 1px solid #cbd5e1;"></span>
+                <span>흰색</span>
+              </button>
+              <button type="button" class="color-preset-btn" data-color="#000000" title="블랙">
+                <span class="preset-dot" style="background: #000000;"></span>
+                <span>검정</span>
+              </button>
+              <button type="button" class="color-preset-btn" data-color="#F3F4F6" title="라이트 그레이">
+                <span class="preset-dot" style="background: #F3F4F6;"></span>
+                <span>연회색</span>
+              </button>
+              <button type="button" class="color-preset-btn" data-color="#1E293B" title="다크 슬레이트">
+                <span class="preset-dot" style="background: #1E293B;"></span>
+                <span>다크</span>
+              </button>
+              <button type="button" class="color-preset-btn" data-color="#FFF1F2" title="소프트 로즈">
+                <span class="preset-dot" style="background: #FFF1F2;"></span>
+                <span>로즈</span>
+              </button>
+              <button type="button" class="color-preset-btn" data-color="#EFF6FF" title="소프트 블루">
+                <span class="preset-dot" style="background: #EFF6FF;"></span>
+                <span>소프트블루</span>
+              </button>
+              <div class="custom-color-picker-wrap">
+                <label for="custom-padding-color" class="custom-color-trigger" title="직접 색상 선택">
+                  <i class="fa-solid fa-eye-dropper"></i>
+                  <span>직접 선택</span>
+                </label>
+                <input type="color" id="custom-padding-color" value="#FFFFFF">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Requirement 3: Main Drag & Drop / File Upload Area -->
+    <section class="upload-section">
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" multiple accept="image/*" class="file-hidden-input">
+        <div class="drop-zone-content">
+          <div class="upload-icon-wrapper">
+            <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+            <span class="sparkle sparkle-1">✦</span>
+            <span class="sparkle sparkle-2">✧</span>
+          </div>
+          <h3 class="drop-title">이미지 파일을 이곳으로 드래그 앤 드롭하세요</h3>
+          <p class="drop-sub">또는 아래 버튼을 눌러 컴퓨터에서 사진을 선택하세요 (여러 장 동시 선택 가능)</p>
+          <div class="drop-actions">
+            <button type="button" class="btn btn-primary" id="btn-browse-files">
+              <i class="fa-solid fa-images"></i>
+              <span>사진 파일 선택하기</span>
+            </button>
+          </div>
+          <div class="drop-supported-formats">
+            <span>지원 포맷: JPG, PNG, WEBP, GIF, BMP, HEIC*</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Batch Action Toolbar & Status Bar -->
+    <section class="action-bar-section" id="action-bar-section" style="display: none;">
+      <div class="action-bar-inner">
+        <div class="action-summary">
+          <span class="summary-count">총 <strong id="total-file-count">0</strong>장의 이미지</span>
+          <span class="summary-status" id="batch-status-text">설정 선택 후 변환을 시작하세요</span>
+        </div>
+        
+        <div class="action-buttons-group">
+          <button type="button" class="btn btn-secondary" id="btn-add-more">
+            <i class="fa-solid fa-plus"></i>
+            <span>사진 추가</span>
+          </button>
+          <button type="button" class="btn btn-success" id="btn-process-all">
+            <i class="fa-solid fa-bolt"></i>
+            <span>전체 다시 변환</span>
+          </button>
+          <button type="button" class="btn btn-outline-danger" id="btn-clear-all" title="전체 삭제">
+            <i class="fa-solid fa-trash-can"></i>
+            <span>전체 비우기</span>
+          </button>
+          <!-- Requirement 11: 모든 사진이 끝나면 일괄 다운로드 버튼 활성화 (ZIP 압축) -->
+          <button type="button" class="btn btn-download-all" id="btn-download-all" disabled>
+            <i class="fa-solid fa-file-zipper"></i>
+            <span>ZIP으로 일괄 다운로드</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Requirement 8, 9, 10: 사진 목록, 썸네일, 프로그레스 바, 개별 다운로드 버튼 -->
+    <section class="image-list-section" id="image-list-section" style="display: none;">
+      <div class="list-header">
+        <h3 class="list-title">
+          <i class="fa-solid fa-layer-group"></i>
+          <span>변환 작업 목록</span>
+        </h3>
+        <span class="list-badge" id="list-progress-badge">0 / 0 완료</span>
+      </div>
+
+      <div class="image-items-container" id="image-items-container">
+        <!-- Dynamically injected items -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Image Preview Modal -->
+  <div class="modal-overlay" id="preview-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <span id="modal-filename">미리보기</span>
+        </div>
+        <button type="button" class="modal-close-btn" id="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="preview-tabs">
+          <button class="preview-tab active" data-tab="result">변환 결과물</button>
+          <button class="preview-tab" data-tab="original">원본 이미지</button>
+          <button class="preview-tab" data-tab="compare">나란히 비교</button>
+        </div>
+        <div class="preview-stage" id="preview-stage">
+          <img id="modal-preview-img" src="" alt="미리보기 이미지">
+          <div id="modal-compare-wrap" class="modal-compare-wrap" style="display: none;">
+            <div class="compare-col">
+              <span class="compare-tag">원본</span>
+              <img id="modal-original-img" src="" alt="원본">
+            </div>
+            <div class="compare-col">
+              <span class="compare-tag">변환본</span>
+              <img id="modal-result-img" src="" alt="변환본">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-info-text" id="modal-info-text"></span>
+        <button type="button" class="btn btn-primary" id="modal-download-btn">
+          <i class="fa-solid fa-download"></i> 이 이미지 다운로드
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <p>© 2026 <strong>Kim Bosung</strong>. All rights reserved. Powered by High-Performance Client Canvas API.</p>
+  </footer>
+
+  <!-- BSoffice Client Bridge (CDP 9000 & Python Backend Engine) -->
+  <script src="../bsoffice-bridge.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
