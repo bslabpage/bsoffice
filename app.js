@@ -548,6 +548,14 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 async function handleStaticApi(endpoint, method, body) {
   const normEndpoint = endpoint.split('?')[0];
 
+  // Admin Endpoints Strict Permission Guard
+  if (normEndpoint.startsWith('/api/admin/')) {
+    const curUser = Storage.getCurrentUser();
+    if (!isUserAdmin(curUser)) {
+      throw new Error('관리자(bosung3116@gmail.com) 계정만 접근할 수 있습니다.');
+    }
+  }
+
   // 1. Config
   if (normEndpoint === '/api/config') {
     return {
@@ -881,10 +889,18 @@ async function checkAuth() {
   }
 }
 
+// Helper: Check if user is an approved admin or super admin
+function isUserAdmin(user) {
+  if (!user || !user.email) return false;
+  const emailLower = user.email.toLowerCase().trim();
+  const isSuperAdmin = (emailLower === ADMIN_EMAIL.toLowerCase());
+  const isAdminRole = (user.role === 'admin' && user.status === 'approved');
+  return isSuperAdmin || isAdminRole;
+}
+
 function canAccessTools(user) {
   if (!user) return false;
-  const isSuperAdmin = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  if (isSuperAdmin || user.role === 'admin') return true;
+  if (isUserAdmin(user)) return true;
   if (user.role === 'member' && user.status === 'approved') return true;
   return false;
 }
@@ -906,10 +922,9 @@ function setAuthenticatedUser(user) {
   const roleBadge = document.getElementById('user-role-badge');
   const statusText = document.getElementById('user-status-text');
   const dropdownStatus = document.getElementById('dropdown-user-status');
-  const switchAdminBtn = document.getElementById('dropdown-btn-switch-admin');
 
   const isSuperAdmin = (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
-  const isAdmin = (user.role === 'admin' || isSuperAdmin);
+  const isAdmin = isUserAdmin(user);
 
   if (isAdmin) {
     roleBadge.textContent = isSuperAdmin ? '최고관리자' : '관리자';
@@ -918,16 +933,15 @@ function setAuthenticatedUser(user) {
     statusText.className = 'user-status-text approved';
     dropdownStatus.textContent = isSuperAdmin ? '권한: 최고관리자 (승인됨)' : '권한: 관리자 (승인됨)';
 
-    // Show admin controls
+    // Show admin controls ONLY for verified admins
     document.getElementById('tab-admin').classList.remove('hidden');
     document.getElementById('dropdown-btn-admin').classList.remove('hidden');
     document.getElementById('dropdown-btn-request').classList.add('hidden');
     document.getElementById('approval-notice-banner').classList.add('hidden');
-    if (switchAdminBtn) switchAdminBtn.classList.add('hidden');
   } else {
+    // STRICTLY HIDE all admin buttons and tabs for non-admins
     document.getElementById('tab-admin').classList.add('hidden');
     document.getElementById('dropdown-btn-admin').classList.add('hidden');
-    if (switchAdminBtn) switchAdminBtn.classList.remove('hidden');
 
     const roleName = user.role === 'member' ? '회원' : '비회원';
     roleBadge.textContent = roleName;
@@ -974,12 +988,10 @@ function setAuthenticatedUser(user) {
       document.getElementById('notice-banner-desc').textContent = '오피스 도구를 사용하시려면 관리자에게 승인 요청을 보내주세요.';
       document.getElementById('btn-banner-request').textContent = '승인 요청 작성하기';
     }
-
-    const bannerSwitchAdminBtn = document.getElementById('btn-banner-switch-admin');
-    if (bannerSwitchAdminBtn) {
-      bannerSwitchAdminBtn.classList.remove('hidden');
-    }
   }
+
+  // Update simulation mode indicator if active
+  updateSimulationBannerUI();
 
   switchView('home');
   renderAppCards();
@@ -988,14 +1000,28 @@ function setAuthenticatedUser(user) {
 function setUnauthenticated() {
   state.currentUser = null;
   Storage.setCurrentUser(null);
+  sessionStorage.removeItem('bsoffice_admin_simulating');
 
   document.getElementById('auth-guest').classList.remove('hidden');
   document.getElementById('auth-logged-in').classList.add('hidden');
   document.getElementById('tab-admin').classList.add('hidden');
+  document.getElementById('dropdown-btn-admin').classList.add('hidden');
   document.getElementById('approval-notice-banner').classList.add('hidden');
 
+  updateSimulationBannerUI();
   switchView('home');
   renderAppCards();
+}
+
+function updateSimulationBannerUI() {
+  const simBar = document.getElementById('admin-simulation-bar');
+  if (!simBar) return;
+  const isSimulating = sessionStorage.getItem('bsoffice_admin_simulating') === 'true';
+  if (isSimulating && state.currentUser && !isUserAdmin(state.currentUser)) {
+    simBar.classList.remove('hidden');
+  } else {
+    simBar.classList.add('hidden');
+  }
 }
 
 async function performLogout() {
@@ -1125,8 +1151,9 @@ function switchView(viewName) {
     document.getElementById('tab-home').classList.add('active');
     document.getElementById('tool-iframe').src = 'about:blank';
   } else if (viewName === 'admin') {
-    if (!state.currentUser || (state.currentUser.role !== 'admin' && state.currentUser.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase())) {
-      showToast('관리자만 접근할 수 있는 페이지입니다.', 'error');
+    // Strict Guard: ONLY verified admin accounts can enter!
+    if (!isUserAdmin(state.currentUser)) {
+      showToast('관리자(bosung3116@gmail.com) 계정만 관리자 대시보드에 접근할 수 있습니다.', 'error');
       switchView('home');
       return;
     }
@@ -1142,6 +1169,10 @@ function switchView(viewName) {
 // Admin Dashboard Logic
 // ============================================================================
 async function loadAdminDashboard() {
+  if (!isUserAdmin(state.currentUser)) {
+    switchView('home');
+    return;
+  }
   try {
     const stats = await apiCall('/api/admin/stats');
     const usersData = await apiCall('/api/admin/users');
@@ -1449,39 +1480,31 @@ function initEventListeners() {
     openLoginModal();
   });
 
-  // Admin-Only Quick Test & Account Switcher Buttons (Inside Admin Dashboard)
+  // Simulation Controller (Only accessible from Admin Dashboard by actual admin)
+  const exitSimulationAction = () => {
+    sessionStorage.removeItem('bsoffice_admin_simulating');
+    loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
+    showToast('최고 관리자(bosung3116@gmail.com) 계정으로 복귀했습니다.', 'success');
+    switchView('admin');
+  };
+
+  const btnExitSim = document.getElementById('btn-exit-simulation');
+  if (btnExitSim) {
+    btnExitSim.addEventListener('click', exitSimulationAction);
+  }
+
   const btnQuickAdmin = document.getElementById('btn-quick-admin');
   if (btnQuickAdmin) {
-    btnQuickAdmin.addEventListener('click', () => {
-      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
-      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 전환되었습니다.', 'success');
-      switchView('admin');
-    });
+    btnQuickAdmin.addEventListener('click', exitSimulationAction);
   }
 
   const btnQuickUser = document.getElementById('btn-quick-user');
   if (btnQuickUser) {
     btnQuickUser.addEventListener('click', () => {
+      sessionStorage.setItem('bsoffice_admin_simulating', 'true');
       loginUserDirect('test.user@bsoffice.local', '테스트 사용자');
-      showToast('일반 계정으로 전환되었습니다. (승인 요청 및 비회원 제한 테스트 가능)', 'info');
-    });
-  }
-
-  // Switch back to Admin from Profile Dropdown (when simulating non-admin)
-  const btnSwitchAdmin = document.getElementById('dropdown-btn-switch-admin');
-  if (btnSwitchAdmin) {
-    btnSwitchAdmin.addEventListener('click', () => {
-      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
-      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 복귀했습니다.', 'success');
-    });
-  }
-
-  // Switch back to Admin from Approval Notice Banner
-  const btnBannerSwitchAdmin = document.getElementById('btn-banner-switch-admin');
-  if (btnBannerSwitchAdmin) {
-    btnBannerSwitchAdmin.addEventListener('click', () => {
-      loginUserDirect(ADMIN_EMAIL, '김보성 (최고 관리자)');
-      showToast('최고 관리자(bosung3116@gmail.com) 계정으로 복귀했습니다.', 'success');
+      showToast('일반 계정 시뮬레이션 모드로 전환되었습니다. 상단 바를 통해 언제든 관리자로 복귀할 수 있습니다.', 'info');
+      switchView('home');
     });
   }
 

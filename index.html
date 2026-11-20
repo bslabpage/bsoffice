@@ -18,6 +18,17 @@
 </head>
 <body>
 
+  <!-- Admin Simulation Mode Bar (Only visible when Super Admin actively tests simulation) -->
+  <div id="admin-simulation-bar" class="admin-simulation-bar hidden" style="background: #312e81; color: #ffffff; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; border-bottom: 2px solid #818cf8; z-index: 99999; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span style="font-size: 1.15rem;">🧪</span>
+      <span><strong>최고 관리자 전용 권한 시뮬레이션 중</strong>: 일반 계정(승인 요청 대기) 화면을 체험 중입니다.</span>
+    </div>
+    <button type="button" id="btn-exit-simulation" style="padding: 6px 14px; font-weight: 700; font-size: 0.82rem; background: #4f46e5; color: #ffffff; border: 1px solid #c7d2fe; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+      <span>👑 시뮬레이션 종료 및 최고 관리자로 복귀</span>
+    </button>
+  </div>
+
   <!-- Main App Shell -->
   <div id="bsoffice-app" class="app-layout">
     
@@ -138,14 +149,6 @@
                 <span>사용 승인 요청하기</span>
               </button>
 
-              <!-- Switch back to Admin (Only visible in test/simulation mode) -->
-              <button class="dropdown-item hidden" id="dropdown-btn-switch-admin" style="color: #4f46e5; font-weight: 600;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                </svg>
-                <span>👑 최고 관리자로 복귀</span>
-              </button>
-
               <div class="dropdown-divider"></div>
 
               <button class="dropdown-item text-danger" id="btn-logout">
@@ -191,7 +194,6 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
               <button class="btn-notice-action" id="btn-banner-request">승인 요청 작성하기</button>
-              <button class="btn-notice-action hidden" id="btn-banner-switch-admin" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe;">👑 최고 관리자로 복귀</button>
             </div>
           </div>
         </div>
