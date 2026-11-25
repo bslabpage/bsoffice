@@ -11,7 +11,7 @@ if (window.pdfjsLib) {
 
 // ================= Backend API Configuration =================
 const PPTX_API_URL = "https://pdf-to-pptx-api-659290198207.asia-northeast3.run.app/api/convert-pptx";
-const PPTX_API_TIMEOUT_MS = 60000;
+const PPTX_API_TIMEOUT_MS = 300000;
 
 // ================= Global State =================
 const state = {
