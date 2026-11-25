@@ -9,6 +9,10 @@ if (window.pdfjsLib) {
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// ================= Backend API Configuration =================
+const PPTX_API_URL = "https://pdf-to-pptx-api-659290198207.asia-northeast3.run.app/api/convert-pptx";
+const PPTX_API_TIMEOUT_MS = 60000;
+
 // ================= Global State =================
 const state = {
   mergeFiles: [], // Array of { id, file, name, size, pageCount, arrayBuffer, thumbUrl }
@@ -1494,6 +1498,66 @@ async function convertPdfToPpt() {
   const pptMode = document.querySelector('input[name="pptMode"]:checked')?.value || 'editable';
   const selectedFont = dom.pptFontFamily?.value || 'Malgun Gothic';
   const smartCluster = dom.pptSmartCluster ? dom.pptSmartCluster.checked : true;
+
+  const apiUrl = (typeof PPTX_API_URL === 'string' ? PPTX_API_URL : '').trim();
+  if (apiUrl) {
+    try {
+      const parsedUrl = new URL(apiUrl, window.location.href);
+      if (parsedUrl.pathname === '/' || parsedUrl.pathname === '') {
+        parsedUrl.pathname = '/api/convert-pptx';
+      }
+
+      const uploadFile =
+        fileData.file ||
+        new File([fileData.arrayBuffer], fileData.name, { type: 'application/pdf' });
+
+      const formData = new FormData();
+      formData.append('file', uploadFile, fileData.name);
+      formData.append('mode', pptMode === 'hybrid' ? 'overlay' : pptMode);
+      formData.append('font_name', selectedFont);
+      formData.append('aspect_ratio', ratio);
+      formData.append('merge_paragraphs', String(smartCluster));
+      formData.append('add_notes', String(addNotes));
+
+      updateProgress(35, '변환 서버로 PDF 전송 및 고품질 PPTX 생성 중...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), PPTX_API_TIMEOUT_MS);
+      let pptxBlob;
+      try {
+        const response = await fetch(parsedUrl.toString(), {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '');
+          throw new Error(`HTTP ${response.status}${errorText ? `: ${errorText}` : ''}`);
+        }
+
+        pptxBlob = await response.blob();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!pptxBlob || pptxBlob.size === 0) {
+        throw new Error('서버에서 빈 PPTX 파일이 반환되었습니다.');
+      }
+
+      const outName = fileData.name.replace(/\.pdf$/i, '') + '.pptx';
+      state.convertedBlob = pptxBlob;
+      state.convertedFileName = outName;
+
+      updateProgress(100, '변환 완료!');
+      showConversionResult('PowerPoint', outName, pptxBlob.size);
+      downloadConvertedFile();
+      return;
+    } catch (serverErr) {
+      console.warn('PPTX 백엔드 서버 변환 실패, 브라우저 자체 변환으로 전환합니다:', serverErr);
+      showToast('서버 연결에 실패하여 브라우저 자체 변환으로 자동 전환합니다.', 'info', 3000);
+      updateProgress(15, '브라우저 자체 변환으로 전환 중...');
+    }
+  }
 
   const PptxClass = window.PptxGenJS;
   if (!PptxClass) {

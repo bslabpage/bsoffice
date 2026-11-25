@@ -1,0 +1,505 @@
+from io import BytesIO
+from pathlib import Path
+import re
+from urllib.parse import quote
+
+import pymupdf as fitz
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pptx import Presentation
+from pptx.enum.text import MSO_ANCHOR
+from pptx.oxml.xmlchemy import OxmlElement
+from pptx.oxml.ns import qn
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+PPTX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+)
+RENDER_DPI = 200
+VALID_MODES = {"editable", "overlay", "image"}
+VALID_ASPECT_RATIOS = {"16:9", "4:3", "A4"}
+XML_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+app = FastAPI(title="BOS'S Office PDF to PPTX API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://bslabpage.github.io",
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5500",
+        "http://localhost:8000",
+        "http://localhost:8080",
+        "http://127.0.0.1",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5500",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8080",
+    ],
+    allow_origin_regex=(
+        r"^https://[a-zA-Z0-9-]+\.github\.io$|"
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    ),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+
+
+def sanitize_xml_text(text: str) -> str:
+    """Remove characters that are invalid in XML 1.0."""
+    return XML_CONTROL_CHAR_RE.sub("", text)
+
+
+def int_to_rgb(color_int: int) -> RGBColor:
+    """Convert a PyMuPDF 24-bit RGB integer to python-pptx RGBColor."""
+    r = (color_int >> 16) & 0xFF
+    g = (color_int >> 8) & 0xFF
+    b = color_int & 0xFF
+    return RGBColor(r, g, b)
+
+
+def set_run_font(
+    run,
+    font_name: str,
+    font_size_pt: float,
+    is_bold: bool,
+    is_italic: bool,
+    color: RGBColor,
+) -> None:
+    """Configure Latin, East Asian, and Complex Script font properties on a run."""
+    run.font.name = font_name
+    run.font.size = Pt(font_size_pt)
+    run.font.bold = is_bold
+    run.font.italic = is_italic
+    run.font.color.rgb = color
+
+    r_pr = run._r.get_or_add_rPr()
+    for tag in ("a:ea", "a:cs"):
+        el = r_pr.find(qn(tag))
+        if el is None:
+            el = OxmlElement(tag)
+            r_pr.append(el)
+        el.set("typeface", font_name)
+
+
+def get_slide_dimensions(
+    aspect_ratio: str, first_page_rect: fitz.Rect
+) -> tuple[float, float]:
+    """Return (width_inches, height_inches) for the requested slide aspect ratio."""
+    if aspect_ratio == "16:9":
+        return 13.333, 7.5
+    if aspect_ratio == "4:3":
+        return 10.0, 7.5
+    if first_page_rect.height > first_page_rect.width:
+        return 8.268, 11.693
+    return 11.693, 8.268
+
+
+def compute_fit_transform(
+    pdf_w: float, pdf_h: float, slide_w_in: float, slide_h_in: float
+) -> tuple[float, float, float, float, float]:
+    """Compute uniform scale and centered offsets to fit PDF page on slide."""
+    safe_w = max(pdf_w, 1.0)
+    safe_h = max(pdf_h, 1.0)
+    scale = min(slide_w_in / safe_w, slide_h_in / safe_h)
+    rendered_w_in = safe_w * scale
+    rendered_h_in = safe_h * scale
+    offset_x_in = (slide_w_in - rendered_w_in) / 2.0
+    offset_y_in = (slide_h_in - rendered_h_in) / 2.0
+    return scale, offset_x_in, offset_y_in, rendered_w_in, rendered_h_in
+
+
+def _is_span_bold(span: dict) -> bool:
+    flags = span.get("flags", 0)
+    font_lower = (span.get("font") or "").lower()
+    return bool(flags & 16) or any(
+        token in font_lower for token in ("bold", "black", "heavy")
+    )
+
+
+def _is_span_italic(span: dict) -> bool:
+    flags = span.get("flags", 0)
+    font_lower = (span.get("font") or "").lower()
+    return bool(flags & 2) or any(
+        token in font_lower for token in ("italic", "oblique")
+    )
+
+
+def _merge_bboxes(
+    bbox_a: tuple[float, float, float, float],
+    bbox_b: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    return (
+        min(bbox_a[0], bbox_b[0]),
+        min(bbox_a[1], bbox_b[1]),
+        max(bbox_a[2], bbox_b[2]),
+        max(bbox_a[3], bbox_b[3]),
+    )
+
+
+def extract_text_groups(page_dict: dict, merge_paragraphs: bool) -> list[dict]:
+    """Extract structured line/paragraph groups from PyMuPDF page text dict."""
+    raw_groups: list[dict] = []
+
+    for block in page_dict.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+
+        block_lines: list[dict] = []
+        for line in block.get("lines", []):
+            spans_out: list[dict] = []
+            for span in line.get("spans", []):
+                text = sanitize_xml_text(span.get("text", ""))
+                if not text or not text.strip():
+                    continue
+                spans_out.append(
+                    {
+                        "text": text,
+                        "size": float(span.get("size") or 12.0),
+                        "bold": _is_span_bold(span),
+                        "italic": _is_span_italic(span),
+                        "color": int(span.get("color", 0)),
+                        "bbox": tuple(span.get("bbox", (0.0, 0.0, 0.0, 0.0))),
+                    }
+                )
+
+            if not spans_out:
+                continue
+
+            line_bbox = line.get("bbox")
+            if line_bbox:
+                bbox_tuple = tuple(float(v) for v in line_bbox)
+            else:
+                bbox_tuple = spans_out[0]["bbox"]
+                for sp in spans_out[1:]:
+                    bbox_tuple = _merge_bboxes(bbox_tuple, sp["bbox"])
+
+            max_size = max(sp["size"] for sp in spans_out)
+            block_lines.append(
+                {
+                    "bbox": bbox_tuple,
+                    "max_font_size": max_size,
+                    "lines": [spans_out],
+                }
+            )
+
+        if not block_lines:
+            continue
+
+        if not merge_paragraphs:
+            raw_groups.extend(block_lines)
+        else:
+            group_bbox = block_lines[0]["bbox"]
+            for ln in block_lines[1:]:
+                group_bbox = _merge_bboxes(group_bbox, ln["bbox"])
+            raw_groups.append(
+                {
+                    "bbox": group_bbox,
+                    "max_font_size": max(ln["max_font_size"] for ln in block_lines),
+                    "lines": [ln["lines"][0] for ln in block_lines],
+                }
+            )
+
+    if not merge_paragraphs or len(raw_groups) <= 1:
+        return raw_groups
+
+    raw_groups.sort(key=lambda g: (g["bbox"][1], g["bbox"][0]))
+
+    merged_groups: list[dict] = []
+    for group in raw_groups:
+        if not merged_groups:
+            merged_groups.append(group)
+            continue
+
+        prev = merged_groups[-1]
+        prev_x0, _, _, prev_y1 = prev["bbox"]
+        curr_x0, curr_y0, _, _ = group["bbox"]
+
+        vertical_gap = curr_y0 - prev_y1
+        font_diff = abs(prev["max_font_size"] - group["max_font_size"])
+        left_tolerance = max(group["max_font_size"] * 2.0, 24.0)
+        max_fs = max(prev["max_font_size"], group["max_font_size"])
+        is_heading = prev["max_font_size"] >= 20.0 or group["max_font_size"] >= 20.0
+
+        if (
+            not is_heading
+            and font_diff <= 2.5
+            and abs(prev_x0 - curr_x0) <= left_tolerance
+            and -4.0 <= vertical_gap <= max_fs * 1.6
+        ):
+            prev["lines"].extend(group["lines"])
+            prev["bbox"] = _merge_bboxes(prev["bbox"], group["bbox"])
+            prev["max_font_size"] = max_fs
+        else:
+            merged_groups.append(group)
+
+    return merged_groups
+
+
+def add_text_groups_to_slide(
+    slide,
+    text_groups: list[dict],
+    font_name: str,
+    scale: float,
+    offset_x_in: float,
+    offset_y_in: float,
+    slide_w_in: float,
+    slide_h_in: float,
+) -> None:
+    """Create editable PowerPoint text boxes for extracted text groups."""
+    font_scale = scale * 72.0
+
+    for group in text_groups:
+        x0, y0, x1, y1 = group["bbox"]
+        left_in = max(0.0, offset_x_in + (x0 * scale))
+        top_in = max(0.0, offset_y_in + (y0 * scale))
+        raw_w_in = max(0.15, (x1 - x0) * scale * 1.10)
+        width_in = max(0.15, min(raw_w_in, slide_w_in - left_in))
+        height_in = max(0.15, min(max(0.15, (y1 - y0) * scale), slide_h_in - top_in))
+
+        textbox = slide.shapes.add_textbox(
+            Inches(left_in),
+            Inches(top_in),
+            Inches(width_in),
+            Inches(height_in),
+        )
+        textbox.fill.background()
+        textbox.line.fill.background()
+
+        tf = textbox.text_frame
+        tf.word_wrap = True
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+        tf.margin_left = Inches(0.01)
+        tf.margin_right = Inches(0.01)
+        tf.margin_top = Inches(0.01)
+        tf.margin_bottom = Inches(0.01)
+
+        for idx, line_spans in enumerate(group["lines"]):
+            paragraph = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
+            for span in line_spans:
+                run = paragraph.add_run()
+                run.text = span["text"]
+                scaled_pt = max(6.0, min(96.0, round(span["size"] * font_scale, 1)))
+                set_run_font(
+                    run=run,
+                    font_name=font_name,
+                    font_size_pt=scaled_pt,
+                    is_bold=span["bold"],
+                    is_italic=span["italic"],
+                    color=int_to_rgb(span["color"]),
+                )
+
+
+def render_page_to_png_stream(page: fitz.Page, dpi: int = RENDER_DPI) -> BytesIO:
+    """Render a PyMuPDF page to an in-memory PNG BytesIO stream."""
+    pix = page.get_pixmap(dpi=dpi, alpha=False)
+    stream = BytesIO(pix.tobytes("png"))
+    stream.seek(0)
+    return stream
+
+
+def build_content_disposition(original_filename: str) -> str:
+    """Build an ASCII-safe + RFC 5987 UTF-8 Content-Disposition header."""
+    stem = Path(original_filename or "converted").stem or "converted"
+    pptx_name = f"{stem}.pptx"
+    ascii_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("_") or "converted"
+    ascii_name = f"{ascii_stem}.pptx"
+    encoded_name = quote(pptx_name, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
+
+
+@app.get("/")
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "ok", "service": "pdf-to-pptx"}
+
+
+@app.post("/api/convert-pptx")
+async def convert_pdf_to_pptx(
+    file: UploadFile = File(...),
+    mode: str = Form("editable"),
+    font_name: str = Form("Malgun Gothic"),
+    aspect_ratio: str = Form("16:9"),
+    merge_paragraphs: bool = Form(True),
+    add_notes: bool = Form(True),
+) -> StreamingResponse:
+    """Convert an uploaded PDF in memory into a downloadable PPTX presentation."""
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in VALID_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{mode}'. Allowed values: editable, overlay, image.",
+        )
+
+    normalized_ratio = aspect_ratio.strip().upper()
+    if normalized_ratio not in VALID_ASPECT_RATIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid aspect_ratio '{aspect_ratio}'. Allowed values: 16:9, 4:3, A4.",
+        )
+
+    target_font = font_name.strip() or "Malgun Gothic"
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to open PDF document: {exc}"
+        ) from exc
+
+    try:
+        if doc.needs_pass:
+            raise HTTPException(
+                status_code=400, detail="Password-protected PDFs are not supported."
+            )
+        if doc.page_count == 0:
+            raise HTTPException(status_code=400, detail="PDF document has no pages.")
+
+        slide_w_in, slide_h_in = get_slide_dimensions(normalized_ratio, doc[0].rect)
+        prs = Presentation()
+        prs.slide_width = Inches(slide_w_in)
+        prs.slide_height = Inches(slide_h_in)
+        blank_layout = prs.slide_layouts[6]
+
+        for page in doc:
+            slide = prs.slides.add_slide(blank_layout)
+            page_rect = page.rect
+            scale, offset_x_in, offset_y_in, rendered_w_in, rendered_h_in = (
+                compute_fit_transform(
+                    page_rect.width, page_rect.height, slide_w_in, slide_h_in
+                )
+            )
+
+            raw_notes_text = (
+                sanitize_xml_text(page.get_text("text")).strip() if add_notes else ""
+            )
+
+            if normalized_mode == "image":
+                img_stream = render_page_to_png_stream(page)
+                slide.shapes.add_picture(
+                    img_stream,
+                    Inches(offset_x_in),
+                    Inches(offset_y_in),
+                    Inches(rendered_w_in),
+                    Inches(rendered_h_in),
+                )
+            else:
+                # Extract text structure before any redactions modify the page.
+                page_dict = page.get_text("dict")
+                text_groups = extract_text_groups(page_dict, merge_paragraphs)
+
+                if normalized_mode == "overlay":
+                    for block in page_dict.get("blocks", []):
+                        if block.get("type") != 0:
+                            continue
+                        for line in block.get("lines", []):
+                            for span in line.get("spans", []):
+                                if (span.get("text") or "").strip():
+                                    page.add_redact_annot(
+                                        fitz.Rect(span["bbox"]), fill=False
+                                    )
+
+                    page.apply_redactions(
+                        images=fitz.PDF_REDACT_IMAGE_NONE,
+                        graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                    )
+
+                    bg_stream = render_page_to_png_stream(page)
+                    slide.shapes.add_picture(
+                        bg_stream,
+                        Inches(offset_x_in),
+                        Inches(offset_y_in),
+                        Inches(rendered_w_in),
+                        Inches(rendered_h_in),
+                    )
+                    add_text_groups_to_slide(
+                        slide=slide,
+                        text_groups=text_groups,
+                        font_name=target_font,
+                        scale=scale,
+                        offset_x_in=offset_x_in,
+                        offset_y_in=offset_y_in,
+                        slide_w_in=slide_w_in,
+                        slide_h_in=slide_h_in,
+                    )
+                else:
+                    # 'editable' mode: place embedded images + editable text boxes
+                    placed_images = 0
+                    for block in page_dict.get("blocks", []):
+                        if block.get("type") != 1:
+                            continue
+                        img_bytes = block.get("image")
+                        bbox = block.get("bbox")
+                        if not img_bytes or not bbox:
+                            continue
+                        bx0, by0, bx1, by1 = bbox
+                        img_w_in = (bx1 - bx0) * scale
+                        img_h_in = (by1 - by0) * scale
+                        if img_w_in <= 0.01 or img_h_in <= 0.01:
+                            continue
+                        img_left_in = max(0.0, offset_x_in + (bx0 * scale))
+                        img_top_in = max(0.0, offset_y_in + (by0 * scale))
+                        try:
+                            slide.shapes.add_picture(
+                                BytesIO(img_bytes),
+                                Inches(img_left_in),
+                                Inches(img_top_in),
+                                Inches(min(img_w_in, slide_w_in - img_left_in)),
+                                Inches(min(img_h_in, slide_h_in - img_top_in)),
+                            )
+                            placed_images += 1
+                        except Exception:
+                            # Skip unsupported image encodings without aborting conversion.
+                            continue
+
+                    if text_groups:
+                        add_text_groups_to_slide(
+                            slide=slide,
+                            text_groups=text_groups,
+                            font_name=target_font,
+                            scale=scale,
+                            offset_x_in=offset_x_in,
+                            offset_y_in=offset_y_in,
+                            slide_w_in=slide_w_in,
+                            slide_h_in=slide_h_in,
+                        )
+                    elif placed_images == 0:
+                        fallback_stream = render_page_to_png_stream(page)
+                        slide.shapes.add_picture(
+                            fallback_stream,
+                            Inches(offset_x_in),
+                            Inches(offset_y_in),
+                            Inches(rendered_w_in),
+                            Inches(rendered_h_in),
+                        )
+
+            if add_notes and raw_notes_text:
+                slide.notes_slide.notes_text_frame.text = raw_notes_text
+
+        output_buffer = BytesIO()
+        prs.save(output_buffer)
+        output_buffer.seek(0)
+    finally:
+        doc.close()
+
+    headers = {
+        "Content-Disposition": build_content_disposition(
+            file.filename or "converted.pdf"
+        )
+    }
+    return StreamingResponse(
+        output_buffer,
+        media_type=PPTX_MEDIA_TYPE,
+        headers=headers,
+    )
+
