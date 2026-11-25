@@ -8,6 +8,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pptx import Presentation
+from pptx.enum.dml import MSO_LINE_DASH_STYLE
+from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
@@ -18,6 +20,12 @@ PPTX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 )
 RENDER_DPI = 200
+EMU_PER_INCH = 914400
+# Vector paths whose bounding box is smaller than this (in both directions) are noise.
+MIN_DRAWING_SIZE_PT = 2.0
+# Safety cap so extremely complex vector pages cannot make the slide unusably heavy.
+MAX_DRAWINGS_PER_PAGE = 5000
+BEZIER_STEPS = 8
 VALID_MODES = {"editable", "overlay", "image"}
 VALID_ASPECT_RATIOS = {"16:9", "4:3", "A4"}
 XML_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -305,6 +313,386 @@ def render_page_to_png_stream(page: fitz.Page, dpi: int = RENDER_DPI) -> BytesIO
     return stream
 
 
+class SlideMapper:
+    """Maps PDF page coordinates (pt) to slide coordinates (EMU)."""
+
+    def __init__(self, scale: float, offset_x_in: float, offset_y_in: float):
+        self.scale = scale
+        self.offset_x_in = offset_x_in
+        self.offset_y_in = offset_y_in
+
+    def x(self, value: float) -> int:
+        return int(round((self.offset_x_in + value * self.scale) * EMU_PER_INCH))
+
+    def y(self, value: float) -> int:
+        return int(round((self.offset_y_in + value * self.scale) * EMU_PER_INCH))
+
+    def length(self, value: float) -> int:
+        return max(1, int(round(abs(value) * self.scale * EMU_PER_INCH)))
+
+
+def pdf_color_to_rgb(color) -> RGBColor | None:
+    """Convert a PyMuPDF float color tuple (gray/RGB/CMYK, 0..1) to RGBColor."""
+    if not color:
+        return None
+    try:
+        vals = [max(0.0, min(1.0, float(c))) for c in color]
+    except (TypeError, ValueError):
+        return None
+    if len(vals) == 1:
+        vals = vals * 3
+    elif len(vals) == 4:
+        c, m, y, k = vals
+        vals = [(1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k)]
+    elif len(vals) != 3:
+        return None
+    return RGBColor(*(int(round(v * 255)) for v in vals))
+
+
+def _strip_shape_style(shape) -> None:
+    """Remove theme style reference so no theme fill/outline/shadow leaks in."""
+    style = shape._element.find(qn("p:style"))
+    if style is not None:
+        shape._element.remove(style)
+
+
+def _apply_alpha(parent_el, opacity) -> None:
+    """Add <a:alpha> to the solid color under parent_el (spPr or a:ln)."""
+    if parent_el is None or opacity is None:
+        return
+    try:
+        opacity = float(opacity)
+    except (TypeError, ValueError):
+        return
+    if opacity >= 0.999:
+        return
+    solid = parent_el.find(qn("a:solidFill"))
+    if solid is None:
+        return
+    clr = solid.find(qn("a:srgbClr"))
+    if clr is None:
+        return
+    for old in clr.findall(qn("a:alpha")):
+        clr.remove(old)
+    alpha = OxmlElement("a:alpha")
+    alpha.set("val", str(int(round(max(0.0, opacity) * 100000))))
+    clr.append(alpha)
+
+
+def _apply_drawing_line(shape, drawing: dict, mapper: SlideMapper) -> None:
+    dtype = drawing.get("type") or ""
+    stroke_rgb = pdf_color_to_rgb(drawing.get("color"))
+    line = shape.line
+    if stroke_rgb is None or "s" not in dtype:
+        line.fill.background()
+        return
+    line.color.rgb = stroke_rgb
+    width_pt = float(drawing.get("width") or 1.0) * mapper.scale * 72.0
+    line.width = Pt(max(0.25, width_pt))
+    dashes = (drawing.get("dashes") or "").replace(" ", "")
+    if dashes and not dashes.startswith("[]"):
+        line.dash_style = MSO_LINE_DASH_STYLE.DASH
+    _apply_alpha(shape._element.spPr.find(qn("a:ln")), drawing.get("stroke_opacity"))
+
+
+def _apply_drawing_style(shape, drawing: dict, mapper: SlideMapper) -> None:
+    dtype = drawing.get("type") or ""
+    fill_rgb = pdf_color_to_rgb(drawing.get("fill"))
+    if fill_rgb is not None and "f" in dtype:
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = fill_rgb
+        _apply_alpha(shape._element.spPr, drawing.get("fill_opacity"))
+    else:
+        shape.fill.background()
+    _apply_drawing_line(shape, drawing, mapper)
+
+
+def _sample_bezier(p0, c1, c2, p3, steps: int = BEZIER_STEPS) -> list[tuple[float, float]]:
+    points = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        mt = 1.0 - t
+        a, b, c, d = mt**3, 3 * mt * mt * t, 3 * mt * t * t, t**3
+        points.append(
+            (
+                a * p0.x + b * c1.x + c * c2.x + d * p3.x,
+                a * p0.y + b * c1.y + c * c2.y + d * p3.y,
+            )
+        )
+    return points
+
+
+def _drawing_to_contours(items: list) -> list[list[tuple[float, float]]]:
+    """Flatten PyMuPDF path items (l/c/re/qu) into polygon contours."""
+    contours: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
+
+    for item in items:
+        op = item[0]
+        if op in ("l", "c"):
+            start = item[1]
+            if (
+                not current
+                or abs(current[-1][0] - start.x) > 0.01
+                or abs(current[-1][1] - start.y) > 0.01
+            ):
+                if len(current) >= 2:
+                    contours.append(current)
+                current = [(start.x, start.y)]
+            if op == "l":
+                current.append((item[2].x, item[2].y))
+            else:
+                current.extend(_sample_bezier(item[1], item[2], item[3], item[4]))
+        elif op == "re":
+            if len(current) >= 2:
+                contours.append(current)
+            r = fitz.Rect(item[1])
+            r.normalize()
+            contours.append([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
+            current = []
+        elif op == "qu":
+            if len(current) >= 2:
+                contours.append(current)
+            q = item[1]
+            contours.append([(p.x, p.y) for p in (q.ul, q.ur, q.lr, q.ll)])
+            current = []
+
+    if len(current) >= 2:
+        contours.append(current)
+    return contours
+
+
+def _is_axis_aligned_quad(quad) -> bool:
+    return (
+        abs(quad.ul.y - quad.ur.y) < 0.01
+        and abs(quad.ll.y - quad.lr.y) < 0.01
+        and abs(quad.ul.x - quad.ll.x) < 0.01
+        and abs(quad.ur.x - quad.lr.x) < 0.01
+    )
+
+
+def add_drawing_to_slide(slide, drawing: dict, mapper: SlideMapper, page_rect: fitz.Rect) -> int:
+    """Convert one PyMuPDF vector path into native PowerPoint shapes. Returns shape count."""
+    rect = drawing.get("rect")
+    items = drawing.get("items") or []
+    if rect is None or not items:
+        return 0
+    rect = fitz.Rect(rect)
+    rect.normalize()
+    # Skip tiny decorative dots / curve noise; thin separators (long in one axis) are kept.
+    if max(rect.width, rect.height) < MIN_DRAWING_SIZE_PT:
+        return 0
+    if not rect.intersects(page_rect) and not rect.is_empty:
+        return 0
+
+    dtype = drawing.get("type") or ""
+    has_fill = "f" in dtype and drawing.get("fill") is not None
+    has_stroke = "s" in dtype and drawing.get("color") is not None
+    if not has_fill and not has_stroke:
+        return 0
+
+    ops = {item[0] for item in items}
+    count = 0
+
+    # 1) Pure rectangles (backgrounds, cards, filled bars) -> native rectangles
+    if ops <= {"re", "qu"} and all(
+        item[0] == "re" or _is_axis_aligned_quad(item[1]) for item in items
+    ):
+        for item in items:
+            r = fitz.Rect(item[1]) if item[0] == "re" else fitz.Rect(item[1].rect)
+            r.normalize()
+            if max(r.width, r.height) < MIN_DRAWING_SIZE_PT:
+                continue
+            shape = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                mapper.x(r.x0),
+                mapper.y(r.y0),
+                mapper.length(r.width),
+                mapper.length(r.height),
+            )
+            _strip_shape_style(shape)
+            _apply_drawing_style(shape, drawing, mapper)
+            count += 1
+        return count
+
+    # 2) Stroke-only straight segments (dividers, rules, grid lines) -> connectors
+    if ops <= {"l"} and not has_fill:
+        for item in items:
+            p1, p2 = item[1], item[2]
+            if max(abs(p2.x - p1.x), abs(p2.y - p1.y)) < MIN_DRAWING_SIZE_PT:
+                continue
+            connector = slide.shapes.add_connector(
+                MSO_CONNECTOR.STRAIGHT,
+                mapper.x(p1.x),
+                mapper.y(p1.y),
+                mapper.x(p2.x),
+                mapper.y(p2.y),
+            )
+            _strip_shape_style(connector)
+            _apply_drawing_line(connector, drawing, mapper)
+            count += 1
+        return count
+
+    # 3) Everything else (rounded cards, circles, icons, polygons) -> freeform
+    contours = _drawing_to_contours(items)
+    contours = [c for c in contours if len(c) >= 2]
+    if not contours:
+        return 0
+    close = bool(has_fill or drawing.get("closePath"))
+    emu_contours = [[(mapper.x(x), mapper.y(y)) for x, y in c] for c in contours]
+    first = emu_contours[0]
+    builder = slide.shapes.build_freeform(first[0][0], first[0][1], scale=1.0)
+    builder.add_line_segments(first[1:], close=close)
+    for contour in emu_contours[1:]:
+        builder.move_to(*contour[0])
+        builder.add_line_segments(contour[1:], close=close)
+    shape = builder.convert_to_shape()
+    _strip_shape_style(shape)
+    _apply_drawing_style(shape, drawing, mapper)
+    return 1
+
+
+def add_vector_drawings_to_slide(slide, page: fitz.Page, mapper: SlideMapper) -> int:
+    """Rebuild page backgrounds, boxes, lines and vector art as editable shapes."""
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        return 0
+    page_rect = page.rect
+    total = 0
+    for drawing in drawings[:MAX_DRAWINGS_PER_PAGE]:
+        try:
+            total += add_drawing_to_slide(slide, drawing, mapper, page_rect)
+        except Exception:
+            # One malformed path must never abort the whole conversion.
+            continue
+    return total
+
+
+def extract_image_png(doc: fitz.Document, xref: int, smask: int, cache: dict) -> bytes | None:
+    """Extract an image xref as PNG, merging its soft mask (alpha channel) if present."""
+    key = (xref, smask)
+    if key in cache:
+        return cache[key]
+
+    png_bytes = None
+    try:
+        pix = fitz.Pixmap(doc, xref)
+        if smask:
+            if pix.alpha:
+                pix = fitz.Pixmap(pix, 0)  # drop any existing alpha before re-masking
+            if pix.colorspace is not None and pix.colorspace.n not in (1, 3):
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            mask = fitz.Pixmap(doc, smask)
+            if mask.alpha:
+                mask = fitz.Pixmap(mask, 0)
+            if mask.colorspace is not None and mask.colorspace.n != 1:
+                mask = fitz.Pixmap(fitz.csGRAY, mask)
+            if (mask.width, mask.height) != (pix.width, pix.height):
+                mask = fitz.Pixmap(mask, pix.width, pix.height, None)
+            pix = fitz.Pixmap(pix, mask)
+        elif pix.colorspace is not None and pix.colorspace.n not in (1, 3):
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        png_bytes = pix.tobytes("png")
+    except Exception:
+        try:
+            png_bytes = doc.extract_image(xref).get("image")
+        except Exception:
+            png_bytes = None
+
+    cache[key] = png_bytes
+    return png_bytes
+
+
+def add_picture_in_bbox(
+    slide, image_bytes: bytes, bbox, page_rect: fitz.Rect, mapper: SlideMapper
+) -> bool:
+    """Place an image exactly at its PDF bbox; crop parts that fall outside the page."""
+    rect = fitz.Rect(bbox)
+    rect.normalize()
+    if rect.is_empty or rect.width < 0.5 or rect.height < 0.5:
+        return False
+    visible = rect & page_rect
+    if visible.is_empty:
+        return False
+
+    picture = slide.shapes.add_picture(
+        BytesIO(image_bytes),
+        mapper.x(visible.x0),
+        mapper.y(visible.y0),
+        mapper.length(visible.width),
+        mapper.length(visible.height),
+    )
+    if visible != rect:
+        picture.crop_left = (visible.x0 - rect.x0) / rect.width
+        picture.crop_right = (rect.x1 - visible.x1) / rect.width
+        picture.crop_top = (visible.y0 - rect.y0) / rect.height
+        picture.crop_bottom = (rect.y1 - visible.y1) / rect.height
+    return True
+
+
+def add_page_images_to_slide(
+    slide,
+    doc: fitz.Document,
+    page: fitz.Page,
+    page_dict: dict,
+    mapper: SlideMapper,
+    image_cache: dict,
+) -> int:
+    """Insert every page image (with alpha soft masks) at its real placement bbox."""
+    page_rect = page.rect
+    smask_by_xref: dict[int, int] = {}
+    try:
+        for img in page.get_images(full=True):
+            smask_by_xref[img[0]] = img[1]
+    except Exception:
+        pass
+
+    inline_blocks = [
+        b
+        for b in page_dict.get("blocks", [])
+        if b.get("type") == 1 and b.get("image") and b.get("bbox")
+    ]
+
+    try:
+        infos = page.get_image_info(xrefs=True)
+    except Exception:
+        infos = []
+
+    placed = 0
+    for info in infos:
+        bbox = info.get("bbox")
+        if not bbox:
+            continue
+        xref = int(info.get("xref") or 0)
+        image_bytes = None
+        if xref > 0:
+            smask = int(info.get("smask") or smask_by_xref.get(xref, 0) or 0)
+            image_bytes = extract_image_png(doc, xref, smask, image_cache)
+        else:
+            # Inline image (no xref): reuse the bytes from the matching text-dict block.
+            target = fitz.Rect(bbox)
+            for block in inline_blocks:
+                b = fitz.Rect(block["bbox"])
+                if (
+                    abs(b.x0 - target.x0) < 1.5
+                    and abs(b.y0 - target.y0) < 1.5
+                    and abs(b.x1 - target.x1) < 1.5
+                    and abs(b.y1 - target.y1) < 1.5
+                ):
+                    image_bytes = block["image"]
+                    break
+        if not image_bytes:
+            continue
+        try:
+            if add_picture_in_bbox(slide, image_bytes, bbox, page_rect, mapper):
+                placed += 1
+        except Exception:
+            # Skip unsupported image encodings without aborting conversion.
+            continue
+    return placed
+
+
 def build_content_disposition(original_filename: str) -> str:
     """Build an ASCII-safe + RFC 5987 UTF-8 Content-Disposition header."""
     stem = Path(original_filename or "converted").stem or "converted"
@@ -370,6 +758,7 @@ async def convert_pdf_to_pptx(
         prs.slide_width = Inches(slide_w_in)
         prs.slide_height = Inches(slide_h_in)
         blank_layout = prs.slide_layouts[6]
+        image_cache: dict = {}
 
         for page in doc:
             slide = prs.slides.add_slide(blank_layout)
@@ -433,34 +822,12 @@ async def convert_pdf_to_pptx(
                         slide_h_in=slide_h_in,
                     )
                 else:
-                    # 'editable' mode: place embedded images + editable text boxes
-                    placed_images = 0
-                    for block in page_dict.get("blocks", []):
-                        if block.get("type") != 1:
-                            continue
-                        img_bytes = block.get("image")
-                        bbox = block.get("bbox")
-                        if not img_bytes or not bbox:
-                            continue
-                        bx0, by0, bx1, by1 = bbox
-                        img_w_in = (bx1 - bx0) * scale
-                        img_h_in = (by1 - by0) * scale
-                        if img_w_in <= 0.01 or img_h_in <= 0.01:
-                            continue
-                        img_left_in = max(0.0, offset_x_in + (bx0 * scale))
-                        img_top_in = max(0.0, offset_y_in + (by0 * scale))
-                        try:
-                            slide.shapes.add_picture(
-                                BytesIO(img_bytes),
-                                Inches(img_left_in),
-                                Inches(img_top_in),
-                                Inches(min(img_w_in, slide_w_in - img_left_in)),
-                                Inches(min(img_h_in, slide_h_in - img_top_in)),
-                            )
-                            placed_images += 1
-                        except Exception:
-                            # Skip unsupported image encodings without aborting conversion.
-                            continue
+                    # 'editable' mode. Z-order: vector design shapes -> images -> text.
+                    mapper = SlideMapper(scale, offset_x_in, offset_y_in)
+                    drawn_shapes = add_vector_drawings_to_slide(slide, page, mapper)
+                    placed_images = add_page_images_to_slide(
+                        slide, doc, page, page_dict, mapper, image_cache
+                    )
 
                     if text_groups:
                         add_text_groups_to_slide(
@@ -473,7 +840,7 @@ async def convert_pdf_to_pptx(
                             slide_w_in=slide_w_in,
                             slide_h_in=slide_h_in,
                         )
-                    elif placed_images == 0:
+                    elif placed_images == 0 and drawn_shapes == 0:
                         fallback_stream = render_page_to_png_stream(page)
                         slide.shapes.add_picture(
                             fallback_stream,
